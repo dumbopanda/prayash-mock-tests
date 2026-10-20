@@ -195,10 +195,53 @@ details.rv summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:10px;align-ite
 .trend .x{font:400 12px Inter,sans-serif;fill:var(--muted)}
 
 /* touch screens (her tablet): every tap target at least 44px */
+/* ---- admin: sidebar + content ---- */
+.adm{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow:auto;background:#fff;border-right:1px solid var(--line);padding:var(--s4) var(--s3);display:flex;flex-direction:column;gap:var(--s2)}
+.side .brand{display:flex;align-items:center;gap:var(--s2);font-weight:600;padding:var(--s1) 10px var(--s3)}
+.nav-g{display:flex;flex-direction:column;gap:2px;margin-top:var(--s3)}
+.nav-g>.lbl{padding:0 10px 6px}
+.nav-i{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px;border-radius:8px;color:var(--muted-2);text-decoration:none;font-size:var(--fs-sm)}
+.nav-i svg{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.nav-i:hover{background:var(--tray);color:var(--ink)}
+.nav-i.on{background:var(--soft);color:var(--ink);font-weight:500}
+.nav-i:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:var(--s2);padding-top:var(--s4);border-top:1px solid var(--rule)}
+.side-foot .muted{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 var(--s1)}
+.main{min-width:0}
+.main .page{max-width:1180px;margin:0 auto;padding:28px 32px 56px;gap:var(--s5)}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4)}
+a.btn{display:inline-flex;align-items:center;text-decoration:none;color:inherit}
+a.btn.dark{color:#fff}
+a.link{color:var(--blue);font-size:var(--fs-sm);text-decoration:none;font-weight:500}
+a.link:hover{text-decoration:underline}
+a.todo{color:inherit;text-decoration:none;font-size:var(--fs-sm)}
+a.todo:hover{background:var(--tray)}
+/* in the admin, a tray reads as one white panel with a plain-language title */
+.main .tray{background:#fff;box-shadow:none;border:1px solid var(--line);border-radius:12px;padding:0;gap:0;overflow:hidden}
+.main .tray>.lbl,.main .tray-head{padding:14px var(--s4) 10px}
+.main .tray>.lbl,.ttl{font:500 var(--fs-sm) Inter,sans-serif;letter-spacing:0;text-transform:none;color:var(--ink)}
+.main .tray>.card{border:0;border-top:1px solid var(--rule);border-radius:0;box-shadow:none}
+.main .tray.fill{min-width:0}
+.main .stat.card{border-radius:12px;box-shadow:none;padding:var(--s4) 20px}
+.main .stat>.lbl{font:400 var(--fs-sm) Inter,sans-serif;letter-spacing:0;text-transform:none}
+.main .stat .v{font-size:28px}
+.bars{display:block;width:100%;height:auto}
+.bars rect{fill:var(--blue)}.bars rect.z{fill:var(--empty)}
+.bars .val{font:500 11px var(--mono);fill:var(--ink)}
+.bars .x{font:400 11px Inter,sans-serif;fill:var(--muted)}
+@media(max-width:900px){
+  .adm{grid-template-columns:1fr}
+  .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .nav-g{flex-direction:row;flex-wrap:wrap;align-items:center}
+  .g2{grid-template-columns:1fr}
+  .main .page{padding:var(--s4)}
+}
 @media(pointer:coarse){.btn,.btn.sm,.tab,.seg,.field{min-height:var(--tap)}.opt{min-height:var(--tap)}}
 
 @media print{
-  .top,.noprint{display:none!important}
+  .top,.side,.noprint{display:none!important}
+  .adm{display:block}
   body{background:#fff}.shell{padding:0;max-width:none}.frame{border:0}.page{padding:0}
   .tray{box-shadow:none}details.rv[open] summary~*{display:block}
 }

@@ -8,23 +8,14 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="shell"><div class="frame">
-  <nav class="top" aria-label="Admin">
-    <span class="brand">Admin</span>
-    <button class="tab" data-v="questions">Question bank</button>
-    <button class="tab" data-v="form">Add question</button>
-    <button class="tab" data-v="import">Import</button>
-    <button class="tab" data-v="tests">Tests</button>
-    <button class="tab" data-v="results">Results</button>
-    <button class="tab" data-v="report">Report</button>
-    <span class="grow"></span>
-    <button class="btn sm" id="out">Sign out</button>
-  </nav>
-  <main class="page" id="view"></main>
-</div></div>
+<div class="adm">
+  <aside class="side"><nav id="nav" aria-label="Admin"></nav>
+    <div class="side-foot"><span class="muted" id="who"></span><button class="btn sm" id="out">Sign out</button></div></aside>
+  <main class="main"><div class="page" id="view"></div></main>
+</div>
 <script type="module">
 import { sb, currentUser, logout } from './shared.js';
-import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, subjectStats, periodReport, trendSvg, mmss, plural } from './util.js';
+import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view');
@@ -33,17 +24,89 @@ const imgPath = (url) => url?.split(`/${IMG}/`)[1]; // storage path from its pub
 const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 
 const me = await currentUser();
-if (!me) location.href = 'index.html';
-else if (me.role !== 'admin') document.body.innerHTML = '<p class="center">Admins only.</p>';
+if (!me) { location.href = 'index.html'; await new Promise(() => {}); }
+if (me.role !== 'admin') { document.body.innerHTML = '<p class="center">Admins only.</p>'; await new Promise(() => {}); }
 
 $('#out').onclick = logout;
-document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => go(t.dataset.v)));
+$('#who').textContent = me.email ?? '';
 
-const views = { questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, results: vResults, report: vReport };
-function go(v, arg) {
+// Sidebar, grouped by what the admin is doing
+const ICON = {
+  home: '<path d="M3 8.5 8 3l5 5.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>', doc: '<path d="M4 2h6l3 3v9H4z"/><path d="M6 8h5M6 11h5"/>',
+  tests: '<rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M6 8h4M6 11h3"/>', check: '<path d="M3 8.5l3 3 7-7"/>',
+  list: '<path d="M5 4h8M5 8h8M5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01"/>', plus: '<path d="M8 3v10M3 8h10"/>', up: '<path d="M8 11V3M5 6l3-3 3 3M3 13h10"/>',
+};
+const NAV = [
+  ['Monitor', [['dash', 'Dashboard', 'home'], ['report', 'Weekly report', 'doc']]],
+  ['Tests', [['tests', 'All tests', 'tests'], ['results', 'Results', 'check']]],
+  ['Content', [['questions', 'Question bank', 'list'], ['form', 'Add question', 'plus'], ['import', 'Import CSV', 'up']]],
+];
+$('#nav').innerHTML = `<div class="brand">Mock Tests <span class="chip">Admin</span></div>` + NAV.map(([g, items]) => `<div class="nav-g"><span class="lbl">${g}</span>${items.map(([v, n, i]) =>
+  `<a class="nav-i" href="#${v}" data-v="${v}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg>${n}</a>`).join('')}</div>`).join('');
+
+// Routing by URL hash, so reload and the back button stay on the same page
+const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, results: vResults, report: vReport };
+let ARG;
+function go(v, arg) { ARG = arg; if (location.hash.slice(1) === v) render(); else location.hash = v; }
+function render() {
+  const v = views[location.hash.slice(1)] ? location.hash.slice(1) : 'dash', arg = ARG; ARG = undefined;
   view.oninput = view.onchange = null;
-  document.querySelectorAll('.tab').forEach((t) => { const on = t.dataset.v === v || (v === 'testform' && t.dataset.v === 'tests'); t.classList.toggle('on', on); on ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current'); });
+  document.querySelectorAll('.nav-i').forEach((a) => { const on = a.dataset.v === v || (v === 'testform' && a.dataset.v === 'tests'); a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
+  scrollTo(0, 0);
   views[v](arg);
+}
+addEventListener('hashchange', render);
+
+/* ---------- Dashboard ---------- */
+const DAY = 864e5;
+// Draft / Upcoming / Live / Finished
+const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : n < s + t.duration_min * 60000 ? 'Live' : 'Finished'; };
+const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
+
+async function vDash() {
+  view.innerHTML = '<p class="muted">Loading…</p>';
+  const [qs, ts, st] = await Promise.all([
+    sb.from('questions').select('id,subject,chapter,question_keys(correct)'),
+    sb.from('tests').select('id,title,start_at,duration_min,published,test_questions(questions(subject))').order('start_at', { ascending: false }),
+    sb.from('profiles').select('id,name').eq('role', 'student'),
+  ]);
+  const err = qs.error || ts.error || st.error;
+  if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
+  const prog = await Promise.all(st.data.map((s) => sb.rpc('get_progress', { p_student: s.id }).then((r) => ({ s, at: r.data?.attempts ?? [] }))));
+  const all = prog.flatMap((p) => p.at.map((a) => ({ ...a, student: p.s.name }))).sort((a, b) => (a.submitted_at < b.submitted_at ? -1 : 1));
+  const now = Date.now(), wk = all.filter((a) => Date.parse(a.submitted_at) >= now - 7 * DAY);
+  const mins = Math.round(wk.reduce((n, a) => n + Object.values(a.times || {}).reduce((x, y) => x + y, 0), 0) / 60);
+  const flagged = wk.filter((a) => (a.flags || []).length);
+  const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 13 + i); return d; });
+  const perDay = days.map((d) => all.filter((a) => new Date(a.submitted_at).toDateString() === d.toDateString()).length);
+  const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
+  const attemptsOf = (t) => all.filter((a) => a.test_id === t.id).length;
+
+  const todo = []; // [text, page]
+  ts.data.filter((t) => statusOf(t) !== 'Finished' && counts(t).some((c) => c !== 15)).forEach((t) => todo.push([`<b>${esc(t.title)}</b> has ${counts(t).join(' / ')} questions (P / C / M / B), not 15 each`, 'tests']));
+  const drafts = ts.data.filter((t) => !t.published).length;
+  if (drafts) todo.push([`${plural(drafts, 'test')} still in draft`, 'tests']);
+  const keyless = qs.data.filter((q) => !q.question_keys).length;
+  if (keyless) todo.push([`${plural(keyless, 'question')} without an answer key`, 'questions']);
+  if (!st.data.length) todo.push(['No student account yet. Create one from the sign-in page.', 'dash']);
+  prog.forEach(({ s, at }) => { const last = at.at(-1); if (!last || now - Date.parse(last.submitted_at) > 7 * DAY) todo.push([`<b>${esc(s.name)}</b> has not taken a test in the last 7 days`, 'results']); });
+  if (flagged.length) todo.push([`${plural(flagged.length, 'attempt')} with cheat flags this week`, 'results']);
+
+  const panel = (title, body, link) => `<div class="tray"><div class="row tray-head"><span class="ttl">${title}</span><span class="grow"></span>${link ? `<a class="link" href="#${link[0]}">${link[1]}</a>` : ''}</div><div class="card ${body.cls ?? ''}">${body.html ?? body}</div></div>`;
+  const bySubj = SUBJECTS.map((s) => ({ s, n: qs.data.filter((q) => q.subject === s).length, c: new Set(qs.data.filter((q) => q.subject === s && q.chapter).map((q) => q.chapter)).size }));
+  view.innerHTML = `
+    <div class="head"><div class="title"><h1>Dashboard</h1><span class="muted">Tests, scores and activity. Counts are for the last 7 days unless noted.</span></div><span class="grow"></span>
+      <a class="btn dark" href="#testform">New test</a><a class="btn" href="#form">Add question</a></div>
+    <div class="stats">${stat('Students', st.data.length)}${stat('Tests taken', wk.length)}${stat('Average score', wk.length ? Math.round(wk.reduce((n, a) => n + pct(a), 0) / wk.length) + '%' : '–')}
+      ${stat('Time practised', mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`)}${stat('Cheat flags', flagged.reduce((n, a) => n + a.flags.length, 0))}${stat('Questions in bank', qs.data.length)}</div>
+    <div class="g2">
+      ${panel('Tests taken per day', `${barsSvg(perDay, days.map((d) => d.getDate()))}<p class="muted">Last 14 days</p>`)}
+      ${panel('Needs attention', { cls: 'list', html: todo.map(([t, p]) => `<a class="li todo" href="#${p}"><span class="grow">${t}</span><span class="muted">›</span></a>`).join('') || '<p class="muted li">Nothing needs attention.</p>' })}
+      ${panel('Score trend', `${trendSvg(all.slice(-10).map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}`, ['results', 'Results'])}
+      ${panel('Tests', { cls: 'tbl', html: `<table><tr><th>Title</th><th>Starts</th><th>Status</th><th>Taken</th></tr>${ts.data.slice(0, 5).map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}</td><td>${statusChip(t)}</td><td class="mono">${attemptsOf(t)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No tests yet.</td></tr>'}</table>` }, ['tests', 'All tests'])}
+    </div>
+    ${panel('Recent attempts', { cls: 'tbl', html: `<table><tr><th>Student</th><th>Test</th><th>Score</th><th>Strategy</th><th>Flags</th><th>Submitted</th></tr>${[...all].reverse().slice(0, 6).map((a) => `<tr><td>${esc(a.student)}</td><td>${esc(a.title)}</td><td class="mono">${a.score} / ${a.max} · ${pct(a)}%</td><td>${esc(stratName(a.strategy))}</td><td class="mono">${(a.flags || []).length || '–'}</td><td class="mono">${when(a.submitted_at)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No attempts yet.</td></tr>'}</table>` }, ['results', 'All results'])}
+    ${panel('Question bank', { cls: 'tbl', html: `<table><tr><th>Subject</th><th>Questions</th><th>Chapters</th></tr>${bySubj.map((r) => `<tr><td>${cap(r.s)}</td><td class="mono">${r.n}</td><td class="mono">${r.c}</td></tr>`).join('')}</table>` }, ['questions', 'Open'])}`;
 }
 
 /* ---------- Question bank ---------- */
@@ -195,7 +258,7 @@ async function vTests() {
       <tr><th>Title</th><th>Starts</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th></th></tr>
       ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}</td>
         <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}</td>
-        <td><span class="chip ${t.published ? 'ok' : ''}">${t.published ? 'Published' : 'Draft'}</span></td>
+        <td>${statusChip(t)}</td>
         <td class="actions"><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
         <button class="btn sm danger" data-d="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No tests yet.</td></tr>'}
@@ -324,7 +387,7 @@ async function vReport(sid, days = 7) {
   $('#print').onclick = () => window.print();
 }
 
-go('questions');
+render();
 </script>
 </body>
 </html>

@@ -185,3 +185,10 @@ export function trendSvg(points) {
 export const mmss = (sec) => { const s = Math.max(0, Math.round(sec || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 1 switch, 2 switches
 export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+
+// Column chart as an SVG string. values: counts per column, labels: text under each column.
+export function barsSvg(values, labels) {
+  const w = 560, h = 130, T = 18, B = 22, bw = w / values.length, max = Math.max(1, ...values), y = (v) => T + (1 - v / max) * (h - T - B);
+  return `<svg class="bars" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(values.map((v, i) => `${labels[i]}: ${v}`).join(', '))}">
+    ${values.map((v, i) => `<rect class="${v ? '' : 'z'}" x="${i * bw + 5}" y="${v ? y(v) : h - B - 3}" width="${bw - 10}" height="${v ? h - B - y(v) : 3}" rx="3"/>${v ? `<text class="val" x="${i * bw + bw / 2}" y="${y(v) - 5}" text-anchor="middle">${v}</text>` : ''}<text class="x" x="${i * bw + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(labels[i])}</text>`).join('')}</svg>`;
+}

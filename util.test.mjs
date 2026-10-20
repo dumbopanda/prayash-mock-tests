@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName } from './util.js';
+import { parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -71,6 +71,7 @@ assert.equal(all.strongest.subject, 'biology');
 assert.match(trendSvg([{ label: 'T1', value: 50 }, { label: 'T2', value: 75 }]), /<polyline/);
 assert.doesNotMatch(trendSvg([{ label: 'T1', value: 50 }]), /<svg/); // one point: message, not a chart
 assert.match(trendSvg([{ label: 'T1', value: 50 }]), /50%/);
+assert.equal((barsSvg([0, 3, 1], ['1', '2', '3']).match(/<rect/g) || []).length, 3); assert.match(barsSvg([0, 3], ['a', 'b']), />3</);
 assert.equal(mmss(0), '0:00'); assert.equal(mmss(605), '10:05'); assert.equal(mmss(59.6), '1:00');
 assert.equal(plural(1, 'switch', 'switches'), '1 switch'); assert.equal(plural(0, 'exit'), '0 exits');
 console.log('util ok');
