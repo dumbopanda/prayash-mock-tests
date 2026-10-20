@@ -8,10 +8,21 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="adm">
-  <aside class="side"><nav id="nav" aria-label="Admin"></nav>
-    <div class="side-foot"><span class="muted" id="who"></span><button class="btn sm" id="out">Sign out</button></div></aside>
-  <main class="main"><div class="page" id="view"></div></main>
+<div class="adm" id="adm">
+  <aside class="side" id="side"><div class="brand"><span class="logo">M</span><span class="t">Mock Tests</span><span class="chip t">Admin</span></div>
+    <nav id="nav" aria-label="Admin"></nav>
+    <div class="side-foot"><button class="nav-i" id="col" type="button" aria-expanded="true" title="Collapse sidebar"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M6 3v10"/></svg><span class="t">Collapse</span></button></div></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="shell-r">
+    <header class="topbar">
+      <button class="icon-btn menu" id="menu" type="button" aria-label="Open menu"><svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
+      <nav class="crumb" id="crumb" aria-label="Breadcrumb"></nav><span class="grow"></span>
+      <button class="icon-btn" id="refresh" type="button" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"/></svg></button>
+      <div class="acct"><button class="avatar" id="acct" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account"></button>
+        <div class="pop" id="pop" hidden><span class="muted" id="who"></span><button class="btn sm" id="out" type="button">Sign out</button></div></div>
+    </header>
+    <main class="main"><div class="page" id="view"></div></main>
+  </div>
 </div>
 <script type="module">
 import { sb, currentUser, logout } from './shared.js';
@@ -29,6 +40,20 @@ if (me.role !== 'admin') { document.body.innerHTML = '<p class="center">Admins o
 
 $('#out').onclick = logout;
 $('#who').textContent = me.email ?? '';
+$('#acct').textContent = (me.email ?? 'A')[0];
+const adm = $('#adm'), store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch {} };
+// Sidebar: collapses to icons on desktop, slides in as a drawer on small screens
+const setMini = (m) => { adm.classList.toggle('mini', m); $('#col').setAttribute('aria-expanded', !m); $('#col').title = m ? 'Expand sidebar' : 'Collapse sidebar'; store('mini', m ? 1 : 0); };
+setMini(store('mini') === '1');
+$('#col').onclick = () => setMini(!adm.classList.contains('mini'));
+const drawer = (o) => { adm.classList.toggle('open', o); };
+$('#menu').onclick = () => drawer(true);
+$('#scrim').onclick = () => drawer(false);
+$('#refresh').onclick = () => render();
+const pop = (o) => { $('#pop').hidden = !o; $('#acct').setAttribute('aria-expanded', o); };
+$('#acct').onclick = (e) => { e.stopPropagation(); pop($('#pop').hidden); };
+addEventListener('click', (e) => { if (!e.target.closest('.acct')) pop(false); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop(false); drawer(false); } });
 
 // Sidebar, grouped by what the admin is doing
 const ICON = {
@@ -41,8 +66,8 @@ const NAV = [
   ['Tests', [['tests', 'All tests', 'tests'], ['results', 'Results', 'check']]],
   ['Content', [['questions', 'Question bank', 'list'], ['form', 'Add question', 'plus'], ['import', 'Import CSV', 'up']]],
 ];
-$('#nav').innerHTML = `<div class="brand">Mock Tests <span class="chip">Admin</span></div>` + NAV.map(([g, items]) => `<div class="nav-g"><span class="lbl">${g}</span>${items.map(([v, n, i]) =>
-  `<a class="nav-i" href="#${v}" data-v="${v}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg>${n}</a>`).join('')}</div>`).join('');
+$('#nav').innerHTML = NAV.map(([g, items]) => `<div class="nav-g"><span class="lbl">${g}</span>${items.map(([v, n, i]) =>
+  `<a class="nav-i" href="#${v}" data-v="${v}" title="${n}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg><span class="t">${n}</span></a>`).join('')}</div>`).join('');
 
 // Routing by URL hash, so reload and the back button stay on the same page
 const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, results: vResults, report: vReport };
@@ -52,6 +77,9 @@ function render() {
   const v = views[location.hash.slice(1)] ? location.hash.slice(1) : 'dash', arg = ARG; ARG = undefined;
   view.oninput = view.onchange = null;
   document.querySelectorAll('.nav-i').forEach((a) => { const on = a.dataset.v === v || (v === 'testform' && a.dataset.v === 'tests'); a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
+  const [g, n] = v === 'testform' ? ['Tests', 'Test'] : (() => { for (const [g, items] of NAV) { const i = items.find((x) => x[0] === v); if (i) return [g, i[1]]; } })();
+  $('#crumb').innerHTML = `<span>${g}</span><span>/</span><b>${n}</b>`;
+  drawer(false);
   scrollTo(0, 0);
   views[v](arg);
 }
