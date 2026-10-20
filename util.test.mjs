@@ -75,3 +75,4 @@ assert.equal((barsSvg([0, 3, 1], ['1', '2', '3']).match(/<rect/g) || []).length,
 assert.equal(mmss(0), '0:00'); assert.equal(mmss(605), '10:05'); assert.equal(mmss(59.6), '1:00');
 assert.equal(plural(1, 'switch', 'switches'), '1 switch'); assert.equal(plural(0, 'exit'), '0 exits');
 console.log('util ok');
+{ const r = readQuestions(CSV_HEADER + '\nphy,c,q,a,b,c,d,B,s,4,fig.png\n'); assert.equal(r.ok[0].image, 'fig.png'); }

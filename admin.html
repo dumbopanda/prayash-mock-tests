@@ -241,20 +241,23 @@ function vImport() {
   view.innerHTML = `
     <div class="head"><h1>Import questions</h1></div>
     <div class="tray"><span class="lbl">CSV</span><div class="card stack">
-      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. In Excel, use Save As → CSV.</p>
+      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. <span class="mono">image</span> is optional: write a picture's file name (e.g. <span class="mono">q12.png</span>) and select the pictures below. In Excel, use Save As → CSV.</p>
       <div class="row"><input id="file" type="file" accept=".csv,text/csv"><button class="btn sm" id="tpl">Download template</button></div>
       <textarea id="txt" class="field mono" rows="8" placeholder="…or paste CSV text here"></textarea>
+      <div class="col"><label class="lbl" for="imgs">Pictures (optional, select many)</label><input id="imgs" type="file" accept="image/*" multiple></div>
       <div class="row"><button class="btn" id="check">Check</button><button class="btn dark" id="go" disabled>Import</button></div>
       <div id="res"></div></div></div>`;
   let ok = [];
   $('#file').onchange = async (e) => { $('#txt').value = await e.target.files[0].text(); };
   $('#tpl').onclick = () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([CSV_HEADER + '\nPhysics,Laws of motion,"A 2 kg block ... speed? (g = 10 m/s^2)",4 m/s,2sqrt(10) m/s,8 m/s,10 m/s,B,"v^2 = 2as = 40",4\n'], { type: 'text/csv' }));
+    a.href = URL.createObjectURL(new Blob([CSV_HEADER + '\nPhysics,Laws of motion,"A 2 kg block ... speed? (g = 10 m/s^2)",4 m/s,2sqrt(10) m/s,8 m/s,10 m/s,B,"v^2 = 2as = 40",4,q1.png\n'], { type: 'text/csv' }));
     a.download = 'questions-template.csv'; a.click();
   };
   $('#check').onclick = () => {
     const r = readQuestions($('#txt').value);
+    const have = new Set([...$('#imgs').files].map((f) => f.name.toLowerCase()));
+    r.ok.forEach((q) => { if (q.image && !have.has(q.image.toLowerCase())) r.errors.push(`Picture "${q.image}" not selected`); });
     ok = r.ok;
     $('#go').disabled = !ok.length || r.errors.length > 0;
     $('#res').innerHTML = `<div class="row tight"><span class="chip ok">✓ ${ok.length} valid</span>${r.errors.length ? `<span class="chip bad">✗ ${r.errors.length} with errors, fix them to import</span>` : ''}</div>
@@ -262,13 +265,22 @@ function vImport() {
   };
   $('#go').onclick = async () => {
     $('#go').disabled = true;
+    const files = Object.fromEntries([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f])), urls = {}, paths = [];
+    const undo = () => paths.length && sb.storage.from(IMG).remove(paths);
+    for (const name of new Set(ok.map((q) => q.image?.toLowerCase()).filter(Boolean))) {
+      const path = `${crypto.randomUUID()}.${name.split('.').pop()}`;
+      const up = await sb.storage.from(IMG).upload(path, files[name]);
+      if (up.error) { await undo(); return ($('#res').innerHTML = `<p class="err">Nothing imported: ${esc(up.error.message)}</p>`); }
+      paths.push(path); urls[name] = sb.storage.from(IMG).getPublicUrl(path).data.publicUrl;
+    }
     const { data, error } = await sb.from('questions')
-      .insert(ok.map(({ correct, solution, ...q }) => q)).select('id');
-    if (error) return ($('#res').innerHTML = `<p class="err">${esc(error.message)}</p>`);
+      .insert(ok.map(({ correct, solution, image, ...q }) => ({ ...q, image_url: image ? urls[image.toLowerCase()] : null }))).select('id');
+    if (error) { await undo(); return ($('#res').innerHTML = `<p class="err">${esc(error.message)}</p>`); }
     // ponytail: relies on insert..returning keeping row order; add a client id column if that ever breaks
     const keys = await sb.from('question_keys').insert(data.map((d, i) => ({ question_id: d.id, correct: ok[i].correct, solution: ok[i].solution })));
     if (keys.error) {
       await sb.from('questions').delete().in('id', data.map((d) => d.id)); // all or nothing
+      await undo();
       return ($('#res').innerHTML = `<p class="err">Nothing imported: ${esc(keys.error.message)}</p>`);
     }
     go('questions');

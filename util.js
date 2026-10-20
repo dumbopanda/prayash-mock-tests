@@ -42,7 +42,7 @@ export function parseCSV(t) {
   return rows.filter((x) => x.some((v) => v.trim()));
 }
 
-export const CSV_HEADER = 'subject,chapter,question,option_a,option_b,option_c,option_d,correct,solution,marks';
+export const CSV_HEADER = 'subject,chapter,question,option_a,option_b,option_c,option_d,correct,solution,marks,image';
 
 export const cap = (s) => s[0].toUpperCase() + s.slice(1);
 export const when = (d) => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -94,7 +94,7 @@ export function readQuestions(csvText) {
     else if (options.some((o) => !o)) errors.push(`Row ${line}: all 4 options are needed`);
     else if (correct < 0) errors.push(`Row ${line}: correct must be A, B, C or D`);
     else if (!Number.isFinite(marks) || marks <= 0) errors.push(`Row ${line}: bad marks`);
-    else ok.push({ subject: subj, chapter: g('chapter'), body: g('question'), options, marks, correct, solution: g('solution') });
+    else ok.push({ subject: subj, chapter: g('chapter'), body: g('question'), options, marks, correct, solution: g('solution'), image: g('image') });
   });
   return { ok, errors };
 }
