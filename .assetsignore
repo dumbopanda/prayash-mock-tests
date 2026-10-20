@@ -3,3 +3,4 @@ wrangler.jsonc
 .gitignore
 node_modules
 .wrangler
+util.test.mjs

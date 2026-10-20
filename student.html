@@ -17,23 +17,15 @@
   <div class="row"><button class="btn" value="no">Cancel</button><button class="btn dark" value="yes" id="dlgOk">OK</button></div></form></dialog>
 <script type="module">
 import { sb, currentUser, logout } from './shared.js';
-import { SUBJECTS, STRATEGIES, esc, fmt, phaseOf, pct, chapterStats, strategyStats, subjectStats, mistakes, trendSvg, mmss, plural } from './util.js';
+import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, phaseOf, pct, verdictOf, chapterStats, strategyStats, subjectStats, mistakes, trendSvg, mmss, plural } from './util.js';
 
 const $ = (s) => document.querySelector(s);
 const app = $('#app');
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const hms = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':'); };
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
 const EXAM = 'exam.active';
-const INFO = {
-  subject: ['One subject at a time. No going back.', 'Alerts every 30 min'],
-  timebox: ['25 min per subject, then 20 min to return to marked questions.', '4 × 25 + 20 min'],
-  three_round: ['Easy questions first across the paper, then moderate, then hard.', '50 + 45 + 25 min'],
-  two_pass: ['You pick the subject order. Skip and mark in pass 1, return in pass 2.', '80 + 40 min'],
-  free: ['No guidance. The plain exam and the total timer.', 'Total timer only'],
-};
 
 let S = read(EXAM); // active exam, kept on the tablet so a crash or restart resumes it
 let tick = 0, ticks = 0, wl = null, startTimer = 0, toastT = 0;
@@ -68,9 +60,9 @@ async function home() {
       const d = done.get(x.id), start = Date.parse(x.start_at), open = Date.now() >= start - 15 * 60000;
       const btn = d ? `<button class="btn sm" data-a="result" data-id="${x.id}">Result</button>`
         : open || read('paper.' + x.id) ? `<button class="btn sm dark" data-a="open" data-id="${x.id}">Open</button>`
-        : `<span class="muted">Opens ${new Date(start - 15 * 60000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>`;
+        : `<span class="muted">Opens ${when(start - 15 * 60000)}</span>`;
       return `<div class="li"><div class="col"><b>${esc(x.title)}</b>
-        <span class="muted mono">${new Date(start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${x.duration_min} min</span></div>
+        <span class="muted mono">${when(start)} · ${x.duration_min} min</span></div>
         ${d ? `<span class="chip ok">Score ${d.score}</span>` : ''}${btn}</div>`;
     }).join('') || '<p class="muted">No tests yet.</p>'}</div></div></div></div>`;
 }
@@ -107,24 +99,26 @@ async function openTest(id) {
 function startScreen(paper) {
   const t = paper.test;
   let pick = t.strategies.includes('timebox') ? 'timebox' : t.strategies[0];
-  let order = [...SUBJECTS];
+  const has = SUBJECTS.filter((s) => paper.questions.some((q) => q.subject === s)); // drills may cover fewer subjects
+  let order = [...has], pinned = false;
+  const marks = [...new Set(paper.questions.map((q) => q.marks))].join('/');
   const wait = () => Date.parse(t.start_at) - (Date.now() + paper.offset);
   const draw = () => {
     app.innerHTML = `<div class="frame"><div class="top"><button class="btn sm" data-a="home">Back</button><span class="brand">${esc(t.title)}</span><span class="grow"></span>${netPill()}</div>
       <div class="page"><h1>How will you attempt this paper?</h1>
       <div class="split"><div class="tray"><span class="lbl">${plural(t.strategies.length, 'strategy', 'strategies')}</span>
         <div class="card flush">${t.strategies.map((k) => `<button class="strat ${k === pick ? 'on' : ''}" data-a="strat" data-k="${k}" aria-pressed="${k === pick}"><span class="dot"></span>
-          <span class="txt"><b>${STRATEGIES[k]}</b><span class="muted">${INFO[k][0]}</span></span><span class="mono muted">${INFO[k][1]}</span></button>`).join('')}</div>
-        ${pick === 'two_pass' ? `<div class="card stack tight"><span class="lbl">Subject order</span>${order.map((s, i) => `<div class="row"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
-          <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < 3 ? '' : 'disabled'}>↓</button></div>`).join('')}</div>` : ''}</div>
-      <div class="stack"><div class="dark-card"><span class="pill ondark">${new Date(t.start_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+          <span class="txt"><b>${STRATEGIES[k][0]}</b><span class="muted">${STRATEGIES[k][1]}</span></span><span class="mono muted">${STRATEGIES[k][2]}</span></button>`).join('')}</div>
+        ${pick === 'two_pass' && order.length > 1 ? `<div class="card stack tight"><span class="lbl">Subject order</span>${order.map((s, i) => `<div class="row"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
+          <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div>` : ''}</div>
+      <div class="stack"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
         <div class="t">${esc(t.title)}</div>
-        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min<br>Marking +4 / −${t.neg_marks}</div>
+        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min<br>Marking +${marks} / −${t.neg_marks}</div>
         <div class="cd" id="cd" aria-live="polite"></div></div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
           <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
-          <div>${navigator.onLine ? 'Turn on airplane mode, then tap Start' : '✓ Airplane mode is on'}</div>
-          <label class="opt"><input type="checkbox"> Screen pinning on</label></div></div>
+          <div id="air">${airText()}</div>
+          <label class="opt"><input type="checkbox" id="pin" ${pinned ? 'checked' : ''}> Screen pinning is on</label></div></div>
         <button class="btn dark lg" data-a="go" id="go" disabled>Start test</button></div></div></div></div>`;
     tickStart();
     navigator.getBattery?.().then((b) => { const el = $('#bat'); if (el) el.textContent = `${b.level >= 0.5 ? '✓' : '!'} Battery ${Math.round(b.level * 100)}%`; });
@@ -132,12 +126,13 @@ function startScreen(paper) {
   const tickStart = () => {
     const w = wait(); const cd = $('#cd'), go = $('#go');
     if (cd) cd.textContent = w > 0 ? 'Opens in ' + hms(w) : 'Ready';
-    if (go) go.disabled = w > 0;
+    if (go) go.disabled = w > 0 || !pinned || !paper.questions.length;
   };
+  app.onchange = (e) => { if (e.target.id === 'pin') { pinned = e.target.checked; tickStart(); } };
   startScreen.handle = async (a, d) => {
     if (a === 'strat') { pick = d.k; draw(); }
     else if (a === 'up' || a === 'down') { const i = +d.i, j = a === 'up' ? i - 1 : i + 1; [order[i], order[j]] = [order[j], order[i]]; draw(); }
-    else if (a === 'go') begin(paper, pick, pick === 'two_pass' ? order : [...SUBJECTS]);
+    else if (a === 'go') begin(paper, pick, pick === 'two_pass' ? order : has);
   };
   clearInterval(startTimer); startTimer = setInterval(tickStart, 1000);
   draw();
@@ -156,6 +151,7 @@ async function begin(paper, strategy, order) {
   S = { testId: t.id, title: t.title, strategy, order, startedAt, offset: paper.offset, durationMs: t.duration_min * 60000, neg: t.neg_marks, cheat: t.cheat_flags,
         qs: paper.questions, answers: {}, marked: [], visited: [], times: {}, flags: [], cur: first(order[0]).id, subjIdx: 0, alerts: [], lastIdx: -1, pending: false };
   S.visited.push(S.cur); persist();
+  app.onchange = null;
   startEngine();
 }
 
@@ -230,7 +226,7 @@ function checkPhase(initial) {
 
 function updateClock(l, p) {
   const c = $('#clock'); if (c) c.textContent = hms(l ?? S.durationMs - elapsed());
-  const ph = $('#phase'); if (ph) { p ??= phase(); ph.textContent = p.label + (isFinite(p.endsInMs) && !p.final ? ` · ends in ${hms(p.endsInMs).slice(3)}` : ''); }
+  const ph = $('#phase'); if (ph) { p ??= phase(); ph.textContent = p.label + (isFinite(p.endsInMs) && !p.final ? ` · ends in ${hms(p.endsInMs).replace(/^00:/, '')}` : ''); }
 }
 
 const STATE = { A: 'Answered', M: 'Marked for review', S: 'Skipped', V: 'Not visited' };
@@ -283,7 +279,7 @@ function render() {
         <div class="opts" role="radiogroup" aria-label="Options">${q.options.map((o, i) => `<button class="optrow ${S.answers[q.id] === i ? 'on' : ''}" role="radio" aria-checked="${S.answers[q.id] === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span class="key">${'ABCD'[i]}</span><span>${fmt(o)}</span></button>`).join('')}</div></div>
       <div class="row tray-foot">
         <button class="btn" data-a="${marked ? 'unmark' : 'markNext'}">${marked ? 'Remove review mark' : 'Mark for review'}</button><button class="btn" data-a="clear">Clear</button><span class="grow"></span>
-        ${S.strategy === 'subject' && S.subjIdx < 3 ? '<button class="btn" data-a="finishSubject">Finish subject</button>' : ''}
+        ${S.strategy === 'subject' && S.subjIdx < S.order.length - 1 ? '<button class="btn" data-a="finishSubject">Finish subject</button>' : ''}
         <button class="btn" data-a="prev">Previous</button><button class="btn dark" data-a="save">Save &amp; next</button></div></div>
     <div class="stack"><div class="tray"><span class="lbl">${cap(q.subject)} · Palette</span><div class="card stack"><div class="pal">${list.map((x, i) => `<button class="sq ${status(x)} ${x.id === S.cur ? 'cur' : ''}" data-a="jump" data-id="${x.id}" aria-label="Question ${i + 1}, ${STATE[status(x)]}"${x.id === S.cur ? ' aria-current="true"' : ''}>${i + 1}</button>`).join('')}</div>
         <div class="legend">${Object.entries(STATE).map(([k, n]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${n}</span><span class="mono">${count(q.subject, k)}</span></div>`).join('')}</div></div></div>
@@ -295,6 +291,7 @@ function render() {
 /* ================= Finish + upload ================= */
 async function finish() {
   clearInterval(tick);
+  $('#dlg').close(); // time ran out with a confirm box open
   S.pending = true; S.err = ''; persist();
   upload();
 }
@@ -323,21 +320,22 @@ function showResult({ attempt: a, test, questions: qs }) {
   document.body.classList.remove('exam');
   $('#toast').classList.remove('on');
   const neg = test?.neg_marks ?? 1, ans = a.answers, times = a.times || {};
-  const verdict = (q) => (ans[q.id] == null ? 'S' : ans[q.id] === q.correct ? 'C' : 'W');
+  const verdict = (q) => verdictOf(ans[q.id], q.correct);
   const total = qs.reduce((s, q) => s + q.marks, 0), mine = total ? Math.round((a.score / total) * 100) : 0;
-  const rows = SUBJECTS.map((s) => {
-    const l = qs.filter((q) => q.subject === s), c = l.filter((q) => verdict(q) === 'C'), w = l.filter((q) => verdict(q) === 'W').length;
-    return { s, l, c: c.length, w, score: c.reduce((x, q) => x + q.marks, 0) - w * neg, max: l.reduce((x, q) => x + q.marks, 0), time: l.reduce((x, q) => x + (times[q.id] || 0), 0) };
+  const qrows = qs.map((q) => ({ ...q, question_id: q.id, attempt_id: a.id, chosen: ans[q.id] }));
+  const sum = (l) => l.reduce((x, q) => x + q.marks, 0);
+  const rows = subjectStats(qrows, [{ id: a.id, times }]).filter((r) => r.total).map((r) => {
+    const l = qrows.filter((q) => q.subject === r.subject);
+    return { ...r, l, max: sum(l), score: sum(l.filter((q) => verdict(q) === 'C')) - r.wrong * neg };
   });
-  const weakHere = chapterStats(qs.map((q) => ({ subject: q.subject, chapter: q.chapter, chosen: ans[q.id], correct: q.correct })), 1).filter((c) => c.acc < 1).slice(0, 6);
-  const dark = (k, v, sub) => `<div class="stat"><span class="lbl">${k}</span><span class="v">${v} <span class="u">${sub}</span></span></div>`;
-  app.innerHTML = `<div class="frame"><div class="top"><span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${STRATEGIES[a.strategy] ?? ''}</span><span class="grow"></span><button class="btn sm" data-a="progress">Progress</button><button class="btn sm" data-a="home">Back to tests</button></div>
+  const weakHere = chapterStats(qrows, 1).filter((c) => c.acc < 1).slice(0, 6);
+  app.innerHTML = `<div class="frame"><div class="top"><span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${stratName(a.strategy)}</span><span class="grow"></span><button class="btn sm" data-a="progress">Progress</button><button class="btn sm" data-a="home">Back to tests</button></div>
     <div class="page"><div class="hero"><div class="stat"><span class="lbl">Score</span><span class="v">${a.score} <span class="u">/ ${total}</span></span><span class="delta" id="delta">${mine}%</span></div>
-      <div class="stats">${dark('✓ Correct', a.correct, '')}${dark('✗ Wrong', a.wrong, '')}${dark('– Skipped', a.skipped, '')}</div></div>
-    <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.s.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q, i) => `<i class="${verdict(q)}" title="Q${i + 1} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
+      <div class="stats">${stat('✓ Correct', a.correct, '', '')}${stat('✗ Wrong', a.wrong, '', '')}${stat('– Skipped', a.skipped, '', '')}</div></div>
+    <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.subject.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q, i) => `<i class="${verdict(q)}" title="Q${i + 1} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
       <div class="row muted"><span class="sqs"><i class="C"></i></span>Correct<span class="sqs"><i class="W"></i></span>Wrong<span class="sqs"><i></i></span>Skipped</div></div></div>
     <div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Score</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
-      ${rows.map((r) => `<tr><td>${cap(r.s)}</td><td class="mono">${r.score} / ${r.max}</td><td class="mono">${r.c + r.w ? Math.round((r.c / (r.c + r.w)) * 100) + '%' : '–'}</td><td class="mono">${mmss(r.time)}</td><td class="mono">${r.l.length ? mmss(r.time / r.l.length) : '–'}</td></tr>`).join('')}</table></div></div>
+      ${rows.map((r) => `<tr><td>${cap(r.subject)}</td><td class="mono">${r.score} / ${r.max}</td><td class="mono">${r.acc == null ? '–' : r.acc + '%'}</td><td class="mono">${mmss(r.secs)}</td><td class="mono">${mmss(r.perQ)}</td></tr>`).join('')}</table></div></div>
     ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise from this test</span><div class="card list">${weakHere.map(chapterRow).join('')}</div></div>` : ''}
     <div class="tray"><span class="lbl">Review solutions</span><div class="card list">${qs.map((q) => `<details class="rv"><summary>${verdictChip(verdict(q))}<span class="mono muted">${cap(q.subject.slice(0, 3))} ${q.position}</span><span>${fmt(q.body.slice(0, 90))}</span></summary>${qBlock(q, ans[q.id])}</details>`).join('')}</div></div></div></div>`;
   // change vs the previous test (needs internet; the result shows fine without it)
@@ -351,9 +349,11 @@ function showResult({ attempt: a, test, questions: qs }) {
 }
 
 /* ================= Progress, mistake notebook, practice ================= */
-const netPill = () => `<span class="pill ${navigator.onLine ? 'on' : ''}">${navigator.onLine ? 'ONLINE' : 'OFFLINE'}</span>`;
+const netPill = () => `<span class="pill net ${navigator.onLine ? 'on' : ''}">${navigator.onLine ? 'ONLINE' : 'OFFLINE'}</span>`;
+const airText = () => (navigator.onLine ? 'Turn on airplane mode, then tap Start' : '✓ Airplane mode is on');
+const syncNet = () => { document.querySelectorAll('.net').forEach((e) => (e.outerHTML = netPill())); const a = $('#air'); if (a) a.textContent = airText(); };
+addEventListener('online', syncNet); addEventListener('offline', syncNet);
 const nav = (on) => `<div class="top"><span class="brand">Mock Tests</span>${[['home', 'Tests'], ['progress', 'Progress'], ['notebook', 'Mistakes']].map(([a, n]) => `<button class="tab ${on === a ? 'on' : ''}" data-a="${a}"${on === a ? ' aria-current="page"' : ''}>${n}</button>`).join('')}<span class="grow"></span>${netPill()}<button class="btn sm" data-a="out">Sign out</button></div>`;
-const stat = (k, v, sub = '') => `<div class="card stat"><span class="lbl">${k}</span><span class="v">${v} <span class="u">${sub}</span></span></div>`;
 const blocks = (n) => `<span class="bar" role="img" aria-label="${Math.round(n)}%">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(n / 10) ? 'on' : ''}"></i>`).join('')}</span>`;
 const chapterRow = (c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></div>`;
 const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
@@ -379,7 +379,7 @@ async function progress() {
       <div class="tray"><span class="lbl">Score trend</span><div class="card">${trendSvg(at.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}</div></div>
       <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Accuracy</th><th>Per question</th><th>Right</th><th>Wrong</th><th>Skipped</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
-        <div class="tray"><span class="lbl">Strategies</span><div class="card list">${strat.map((s) => `<div class="li"><div class="col"><span>${STRATEGIES[s.strategy] ?? s.strategy}</span><span class="muted">${plural(s.n, 'test')}</span></div>${blocks(s.avg)}<span class="num-r">${s.avg}%</span></div>`).join('')}
+        <div class="tray"><span class="lbl">Strategies</span><div class="card list">${strat.map((s) => `<div class="li"><div class="col"><span>${stratName(s.strategy)}</span><span class="muted">${plural(s.n, 'test')}</span></div>${blocks(s.avg)}<span class="num-r">${s.avg}%</span></div>`).join('')}
           <p class="muted li">${strat.length > 1 ? 'Average score per strategy. More tests make this more reliable.' : 'Try other strategies in later tests to compare.'}</p></div></div></div>
       <div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${weak.map(chapterRow).join('') || '<p class="muted li">No weak chapters yet.</p>'}</div></div>`;
   }

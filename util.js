@@ -1,13 +1,15 @@
 // Pure helpers shared by admin and student pages (no network, testable in node).
 
 export const SUBJECTS = ['physics', 'chemistry', 'mathematics', 'biology'];
+// key: [name, what she does, timing]
 export const STRATEGIES = {
-  subject: 'Subject by subject',
-  timebox: 'Time-boxed subjects',
-  three_round: 'Three-round sweep',
-  two_pass: 'Strongest first + two-pass',
-  free: 'Free mode',
+  subject: ['Subject by subject', 'One subject at a time. No going back.', 'Alerts every 30 min'],
+  timebox: ['Time-boxed subjects', 'Equal time per subject, then 20 min to return to marked questions.', '100 min split + 20 min'],
+  three_round: ['Three-round sweep', 'Easy questions first across the paper, then moderate, then hard.', '50 + 45 + 25 min'],
+  two_pass: ['Strongest first + two-pass', 'You pick the subject order. Skip and mark in pass 1, return in pass 2.', '80 + 40 min'],
+  free: ['Free mode', 'No guidance. The plain exam and the total timer.', 'Total timer only'],
 };
+export const stratName = (k) => STRATEGIES[k]?.[0] ?? k;
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -42,10 +44,13 @@ export function parseCSV(t) {
 
 export const CSV_HEADER = 'subject,chapter,question,option_a,option_b,option_c,option_d,correct,solution,marks';
 
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
+export const cap = (s) => s[0].toUpperCase() + s.slice(1);
+export const when = (d) => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+// Stat tile; the result hero passes cls '' to drop the card frame
+export const stat = (k, v, sub = '', cls = 'card') => `<div class="${cls} stat"><span class="lbl">${k}</span><span class="v">${v} <span class="u">${sub}</span></span></div>`;
 
 // Which stage of a strategy the clock is in. Stage lengths are written for a 120-minute paper
-// and scale if the test has a different duration.
+// and scale if the test has a different duration. Timebox splits 100 min across the subjects in the test.
 export function phaseOf(strategy, elapsedMs, durationMs, order = SUBJECTS) {
   const m = (Math.max(0, Math.min(elapsedMs, durationMs)) / durationMs) * 120;
   const toMs = (min) => (min / 120) * durationMs;
@@ -55,7 +60,7 @@ export function phaseOf(strategy, elapsedMs, durationMs, order = SUBJECTS) {
     return { idx: i, label: labels[i], lock: lock ? lock(i) : null, endsInMs: toMs(cuts[i]) - elapsedMs, final: i === cuts.length - 1 };
   };
   if (strategy === 'timebox')
-    return stage([25, 50, 75, 100, 120], [...order.map((s) => `${cap(s)} box`), 'Review marked and skipped'], (i) => order[i] ?? null);
+    return stage([...order.map((_, i) => ((i + 1) * 100) / order.length), 120], [...order.map((s) => `${cap(s)} box`), 'Review marked and skipped'], (i) => order[i] ?? null);
   if (strategy === 'three_round')
     return stage([50, 95, 120], ['Round 1: easy questions', 'Round 2: moderate questions', 'Round 3: hard questions and review']);
   if (strategy === 'two_pass') return stage([80, 120], ['Pass 1: answer, skip, mark', 'Pass 2: skipped and marked']);
@@ -166,7 +171,8 @@ export function periodReport(attempts, rows, sinceMs) {
 }
 
 // Small line chart as an SVG string. points: [{ label, value }] with value 0-100. Styled by .trend in style.css.
-export function trendSvg(points, w = 560, h = 150) {
+export function trendSvg(points) {
+  const w = 560, h = 150;
   if (points.length < 2) return `<p class="muted">The trend appears after 2 tests.${points.length ? ` So far: ${points[0].value}%.` : ''}</p>`;
   const L = 24, R = 24, T = 22, B = 28, x = (i) => L + (i * (w - L - R)) / (points.length - 1), y = (v) => T + ((100 - v) / 100) * (h - T - B);
   return `<svg class="trend" viewBox="0 0 ${w} ${h}" role="img" aria-label="Score trend: ${esc(points.map((p) => `${p.label} ${p.value}%`).join(', '))}">
