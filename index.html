@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prayas Mock Tests</title>
+<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1E4ED8">
+</head>
+<body class="center">
+<form id="f" class="tray narrow">
+  <span class="lbl" id="mode">Sign in</span>
+  <div class="card stack">
+    <h1>Mock Tests</h1>
+    <div class="col"><label class="lbl" for="e">Email</label><input id="e" class="field" type="email" autocomplete="username" required></div>
+    <div class="col"><label class="lbl" for="p">Password</label><input id="p" class="field" type="password" minlength="6" autocomplete="current-password" required></div>
+    <div class="err" id="msg" role="alert"></div>
+    <button class="btn dark" id="go">Sign in</button>
+    <button class="btn" type="button" id="swap">Create account</button>
+  </div>
+</form>
+<script type="module">
+import { sb, currentUser } from './shared.js';
+
+let signup = false;
+const $ = (id) => document.getElementById(id);
+
+async function route() {
+  const u = await currentUser();
+  if (!u) return;
+  if (u.role === 'admin') location.href = 'admin.html';
+  else location.href = 'student.html';
+}
+
+$('swap').onclick = () => {
+  signup = !signup;
+  $('mode').textContent = signup ? 'Create account' : 'Sign in';
+  $('go').textContent = signup ? 'Create account' : 'Sign in';
+  $('swap').textContent = signup ? 'I have an account' : 'Create account';
+  $('msg').textContent = '';
+};
+
+$('f').onsubmit = async (ev) => {
+  ev.preventDefault();
+  $('msg').textContent = '';
+  const creds = { email: $('e').value.trim(), password: $('p').value };
+  const { error } = signup ? await sb.auth.signUp(creds) : await sb.auth.signInWithPassword(creds);
+  if (error) { $('msg').textContent = error.message; return; }
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { $('msg').textContent = 'Check your email to confirm, then sign in.'; return; }
+  route();
+};
+
+route();
+</script>
+</body>
+</html>

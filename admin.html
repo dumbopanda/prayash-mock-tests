@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Mock Tests</title>
+<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell"><div class="frame">
+  <nav class="top" aria-label="Admin">
+    <span class="brand">Admin</span>
+    <button class="tab" data-v="questions">Question bank</button>
+    <button class="tab" data-v="form">Add question</button>
+    <button class="tab" data-v="import">Import</button>
+    <button class="tab" data-v="tests">Tests</button>
+    <button class="tab" data-v="results">Results</button>
+    <button class="tab" data-v="report">Report</button>
+    <span class="grow"></span>
+    <button class="btn sm" id="out">Sign out</button>
+  </nav>
+  <main class="page" id="view"></main>
+</div></div>
+<script type="module">
+import { sb, currentUser, logout } from './shared.js';
+import { SUBJECTS, STRATEGIES, esc, fmt, readQuestions, CSV_HEADER, pct, subjectStats, periodReport, trendSvg, mmss, plural } from './util.js';
+
+const $ = (s, r = document) => r.querySelector(s);
+const view = $('#view');
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+const me = await currentUser();
+if (!me) location.href = 'index.html';
+else if (me.role !== 'admin') document.body.innerHTML = '<p class="center">Admins only.</p>';
+
+$('#out').onclick = logout;
+document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => go(t.dataset.v)));
+
+const views = { questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, results: vResults, report: vReport };
+function go(v, arg) {
+  view.oninput = view.onchange = null;
+  document.querySelectorAll('.tab').forEach((t) => { const on = t.dataset.v === v || (v === 'testform' && t.dataset.v === 'tests'); t.classList.toggle('on', on); on ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current'); });
+  views[v](arg);
+}
+
+/* ---------- Question bank ---------- */
+async function vQuestions(filter = '') {
+  let q = sb.from('questions').select('*, question_keys(correct, solution)').order('created_at', { ascending: false });
+  if (filter) q = q.eq('subject', filter);
+  const { data, error } = await q;
+  if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
+  view.innerHTML = `
+    <div class="head"><h1>Question bank</h1><span class="grow"></span>
+      <label class="lbl" for="sf">Subject</label>
+      <select id="sf" class="field auto"><option value="">All</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === filter ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
+      <button class="btn dark" id="new">Add question</button></div>
+    <div class="tray"><span class="lbl">${plural(data.length, 'question')}</span>
+      <div class="card tbl"><table>
+        <tr><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th></th></tr>
+        ${data.map((r) => `<tr><td>${cap(r.subject)}</td><td>${esc(r.chapter)}</td>
+          <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}</td>
+          <td class="mono">${'ABCD'[r.question_keys?.correct ?? 0] ?? ''}</td>
+          <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>
+          <button class="btn sm danger" data-d="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No questions yet. Add one or import a CSV.</td></tr>'}
+      </table></div></div>`;
+  $('#sf').onchange = (e) => vQuestions(e.target.value);
+  $('#new').onclick = () => go('form');
+  view.querySelectorAll('[data-e]').forEach((b) => (b.onclick = () => go('form', data.find((r) => r.id === b.dataset.e))));
+  view.querySelectorAll('[data-d]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Delete this question?')) return;
+    const { error } = await sb.from('questions').delete().eq('id', b.dataset.d);
+    if (error) alert(error.code === '23503' ? 'This question is used in a test. Remove it from the test first.' : error.message);
+    else vQuestions(filter);
+  }));
+}
+
+/* ---------- Add / edit question ---------- */
+function vForm(q) {
+  const k = q?.question_keys ?? {};
+  const opts = q?.options ?? ['', '', '', ''];
+  view.innerHTML = `
+    <div class="head"><h1>${q ? 'Edit' : 'Add'} question</h1></div>
+    <div class="split"><div class="tray"><span class="lbl">Question</span><div class="card stack">
+      <div class="row">
+        <div class="col"><label class="lbl" for="subj">Subject</label><select id="subj" class="field">${SUBJECTS.map((s) => `<option value="${s}" ${q?.subject === s ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select></div>
+        <div class="col x2"><label class="lbl" for="chap">Chapter</label><input id="chap" class="field" value="${esc(q?.chapter ?? '')}"></div>
+        <div class="col s"><label class="lbl" for="marks">Marks</label><input id="marks" class="field mono" type="number" min="1" value="${q?.marks ?? 4}"></div>
+      </div>
+      <div class="col"><label class="lbl" for="body">Question text</label><textarea id="body" class="field" rows="4">${esc(q?.body ?? '')}</textarea>
+        <span class="muted">x^2 power · x^{-3} · H_2O subscript · sqrt(10) root</span></div>
+      <div class="col"><label class="lbl" for="img">Image (optional)</label><input id="img" type="file" accept="image/*">
+        ${q?.image_url ? `<span class="muted">Current image kept unless you pick a new one.</span>` : ''}</div>
+      <div class="stack tight"><span class="lbl">Options · mark the correct one</span>
+        ${[0, 1, 2, 3].map((i) => `<div class="opt"><input type="radio" name="ans" value="${i}" aria-label="${'ABCD'[i]} is correct" ${k.correct === i ? 'checked' : ''}>
+          <span class="key">${'ABCD'[i]}</span><input class="field o" aria-label="Option ${'ABCD'[i]}" value="${esc(opts[i])}"></div>`).join('')}</div>
+      <div class="col"><label class="lbl" for="sol">Solution</label><textarea id="sol" class="field" rows="3">${esc(k.solution ?? '')}</textarea></div>
+      <div class="err" id="msg" role="alert"></div>
+      <div class="row"><button class="btn dark" id="save">Save question</button>${q ? '' : '<button class="btn" id="again">Save &amp; add another</button>'}</div>
+    </div></div>
+    <div class="tray"><span class="lbl">Student preview</span><div class="card" id="pv"></div></div></div>`;
+
+  const preview = () => {
+    const o = [...view.querySelectorAll('.o')].map((x) => x.value);
+    const c = Number(view.querySelector('input[name=ans]:checked')?.value ?? -1);
+    $('#pv').innerHTML = `<div class="qblock"><div class="qbody">${fmt($('#body').value) || '<span class="muted">Question appears here</span>'}</div>
+      ${q?.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : ''}
+      ${o.map((t, i) => `<div class="optline ${i === c ? 'right' : ''}"><span class="key">${'ABCD'[i]}</span><span class="grow">${fmt(t)}</span>${i === c ? '<span>✓ correct</span>' : ''}</div>`).join('')}</div>`;
+  };
+  view.oninput = view.onchange = preview;
+  preview();
+
+  async function save(again) {
+    const msg = $('#msg'); msg.textContent = '';
+    const options = [...view.querySelectorAll('.o')].map((x) => x.value.trim());
+    const correct = view.querySelector('input[name=ans]:checked')?.value;
+    if (!$('#body').value.trim()) return (msg.textContent = 'Write the question.');
+    if (options.some((x) => !x)) return (msg.textContent = 'Fill all four options.');
+    if (correct === undefined) return (msg.textContent = 'Mark the correct option.');
+    $('#save').disabled = true;
+    let image_url = q?.image_url ?? null;
+    const file = $('#img').files[0];
+    if (file) {
+      const path = `${crypto.randomUUID()}.${file.name.split('.').pop().toLowerCase()}`;
+      const up = await sb.storage.from('question-images').upload(path, file);
+      if (up.error) { $('#save').disabled = false; return (msg.textContent = up.error.message); }
+      image_url = sb.storage.from('question-images').getPublicUrl(path).data.publicUrl;
+    }
+    const row = { subject: $('#subj').value, chapter: $('#chap').value.trim(), body: $('#body').value.trim(), options, image_url, marks: Number($('#marks').value) || 4 };
+    const r = q ? await sb.from('questions').update(row).eq('id', q.id).select('id').single() : await sb.from('questions').insert(row).select('id').single();
+    if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
+    const key = await sb.from('question_keys').upsert({ question_id: r.data.id, correct: Number(correct), solution: $('#sol').value.trim() });
+    if (key.error) { $('#save').disabled = false; return (msg.textContent = key.error.message); }
+    again ? vForm() : go('questions');
+  }
+  $('#save').onclick = () => save(false);
+  if (!q) $('#again').onclick = () => save(true);
+}
+
+/* ---------- CSV import ---------- */
+function vImport() {
+  view.innerHTML = `
+    <div class="head"><h1>Import questions</h1></div>
+    <div class="tray"><span class="lbl">CSV</span><div class="card stack">
+      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. In Excel, use Save As → CSV.</p>
+      <div class="row"><input id="file" type="file" accept=".csv,text/csv"><button class="btn sm" id="tpl">Download template</button></div>
+      <textarea id="txt" class="field mono" rows="8" placeholder="…or paste CSV text here"></textarea>
+      <div class="row"><button class="btn" id="check">Check</button><button class="btn dark" id="go" disabled>Import</button></div>
+      <div id="res"></div></div></div>`;
+  let ok = [];
+  $('#file').onchange = async (e) => { $('#txt').value = await e.target.files[0].text(); };
+  $('#tpl').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([CSV_HEADER + '\nPhysics,Laws of motion,"A 2 kg block ... speed? (g = 10 m/s^2)",4 m/s,2sqrt(10) m/s,8 m/s,10 m/s,B,"v^2 = 2as = 40",4\n'], { type: 'text/csv' }));
+    a.download = 'questions-template.csv'; a.click();
+  };
+  $('#check').onclick = () => {
+    const r = readQuestions($('#txt').value);
+    ok = r.ok;
+    $('#go').disabled = !ok.length || r.errors.length > 0;
+    $('#res').innerHTML = `<div class="row tight"><span class="chip ok">✓ ${ok.length} valid</span>${r.errors.length ? `<span class="chip bad">✗ ${r.errors.length} with errors, fix them to import</span>` : ''}</div>
+      <div class="err">${r.errors.map(esc).join('<br>')}</div>`;
+  };
+  $('#go').onclick = async () => {
+    $('#go').disabled = true;
+    const { data, error } = await sb.from('questions')
+      .insert(ok.map(({ correct, solution, ...q }) => q)).select('id');
+    if (error) return ($('#res').innerHTML = `<p class="err">${esc(error.message)}</p>`);
+    // ponytail: relies on insert..returning keeping row order; add a client id column if that ever breaks
+    const keys = await sb.from('question_keys').insert(data.map((d, i) => ({ question_id: d.id, correct: ok[i].correct, solution: ok[i].solution })));
+    if (keys.error) return ($('#res').innerHTML = `<p class="err">${esc(keys.error.message)}</p>`);
+    go('questions');
+  };
+}
+
+/* ---------- Tests ---------- */
+async function vTests() {
+  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject))').order('start_at', { ascending: false });
+  if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
+  const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
+  view.innerHTML = `
+    <div class="head"><h1>Tests</h1><span class="grow"></span><button class="btn dark" id="new">New test</button></div>
+    <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card tbl"><table>
+      <tr><th>Title</th><th>Starts</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th></th></tr>
+      ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${new Date(t.start_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
+        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+4 / −${t.neg_marks}</td>
+        <td><span class="chip ${t.published ? 'ok' : ''}">${t.published ? 'Published' : 'Draft'}</span></td>
+        <td class="actions"><button class="btn sm" data-e="${t.id}">Edit</button>
+        <button class="btn sm" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
+        <button class="btn sm danger" data-d="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No tests yet.</td></tr>'}
+    </table></div></div>`;
+  $('#new').onclick = () => go('testform');
+  view.querySelectorAll('[data-e]').forEach((b) => (b.onclick = () => go('testform', data.find((t) => t.id === b.dataset.e))));
+  view.querySelectorAll('[data-p]').forEach((b) => (b.onclick = async () => {
+    const t = data.find((x) => x.id === b.dataset.p);
+    const n = counts(t);
+    if (!t.published && n.some((c) => c !== 15) && !confirm(`Subjects have ${n.join(' / ')} questions, not 15 each. Publish anyway?`)) return;
+    await sb.from('tests').update({ published: !t.published }).eq('id', t.id);
+    vTests();
+  }));
+  view.querySelectorAll('[data-d]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Delete this test and its attempts?')) return;
+    await sb.from('tests').delete().eq('id', b.dataset.d);
+    vTests();
+  }));
+}
+
+async function vTestForm(t) {
+  const [{ data: qs }, { data: cur }, { count: attempts }] = await Promise.all([
+    sb.from('questions').select('id,subject,chapter,body').order('created_at'),
+    t ? sb.from('test_questions').select('question_id').eq('test_id', t.id) : { data: [] },
+    t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
+  ]);
+  const chosen = new Set(cur.map((x) => x.question_id));
+  const start = t ? toLocal(t.start_at) : '';
+  view.innerHTML = `
+    <div class="head"><h1>${t ? 'Edit' : 'New'} test</h1></div>
+    <div class="tray"><span class="lbl">Settings</span><div class="card stack">
+      <div class="row">
+        <div class="col x2"><label class="lbl" for="title">Title</label><input id="title" class="field" value="${esc(t?.title ?? '')}"></div>
+        <div class="col"><label class="lbl" for="start">Starts</label><input id="start" class="field" type="datetime-local" value="${start}"></div>
+        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="10" value="${t?.duration_min ?? 120}"></div>
+        <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
+      </div>
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Cheat flags on</label>
+        <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
+      </div>
+      <div class="stack tight"><span class="lbl">Strategies she can pick</span>
+        <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v}</label>`).join('')}</div></div>
+    </div></div>
+    <div class="row top-align">${SUBJECTS.map((s) => `
+      <div class="tray fill"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
+        <div class="card list pick">${qs.filter((x) => x.subject === s).map((x) => `
+          <label><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div>
+    <div class="err" id="msg" role="alert">${attempts ? 'This test already has attempts, so its questions are locked.' : ''}</div>
+    <div class="row"><button class="btn dark" id="save">Save test</button><button class="btn" id="back">Cancel</button></div>`;
+
+  const count = () => SUBJECTS.forEach((s) => ($(`#n-${s}`).textContent = view.querySelectorAll(`.q[data-s=${s}]:checked`).length));
+  view.onchange = count; count();
+  if (attempts) view.querySelectorAll('.q').forEach((x) => (x.disabled = true));
+  $('#back').onclick = () => go('tests');
+  $('#save').onclick = async () => {
+    const msg = $('#msg');
+    if (!$('#title').value.trim() || !$('#start').value) return (msg.textContent = 'Title and start time are needed.');
+    const strategies = [...view.querySelectorAll('.st:checked')].map((x) => x.value);
+    if (!strategies.length) return (msg.textContent = 'Allow at least one strategy.');
+    const row = { title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value), neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies };
+    const r = t ? await sb.from('tests').update(row).eq('id', t.id).select('id').single() : await sb.from('tests').insert(row).select('id').single();
+    if (r.error) return (msg.textContent = r.error.message);
+    if (!attempts) {
+      await sb.from('test_questions').delete().eq('test_id', r.data.id);
+      let pos = 0; const rows = [];
+      SUBJECTS.forEach((s) => view.querySelectorAll(`.q[data-s=${s}]:checked`).forEach((x) => rows.push({ test_id: r.data.id, question_id: x.value, position: ++pos })));
+      if (rows.length) { const ins = await sb.from('test_questions').insert(rows); if (ins.error) return (msg.textContent = ins.error.message); }
+    }
+    go('tests');
+  };
+}
+
+/* ---------- Results and report ---------- */
+const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away' };
+
+async function studentData(sid) {
+  const { data: studs } = await sb.from('profiles').select('id,name').eq('role', 'student');
+  if (!studs?.length) return { error: 'No student account yet.' };
+  sid ??= studs[0].id;
+  const r = await sb.rpc('get_progress', { p_student: sid });
+  if (r.error) return { error: r.error.message };
+  const picker = studs.length > 1 ? `<select id="stu" class="field auto noprint" aria-label="Student">${studs.map((s) => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : '';
+  return { sid, name: studs.find((s) => s.id === sid).name, picker, ...r.data };
+}
+
+async function vResults(sid) {
+  const d = await studentData(sid);
+  if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
+  const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
+  view.innerHTML = `<div class="head"><h1>Results</h1><span class="grow"></span>${d.picker}</div>
+    <div class="tray"><span class="lbl">${plural(d.attempts.length, 'attempt')}</span><div class="card list">${[...d.attempts].reverse().map((a) => {
+      const subs = subjectStats(d.answers.filter((r) => r.attempt_id === a.id), [a]).filter((s) => s.total);
+      const active = Object.values(a.times || {}).reduce((x, y) => x + y, 0);
+      return `<details class="rv"><summary><b>${esc(a.title)}</b><span class="mono">${a.score} / ${a.max} · ${pct(a)}%</span><span class="muted">${esc(STRATEGIES[a.strategy] ?? a.strategy)} · ${new Date(a.submitted_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+        <span class="chip ${(a.flags || []).length ? 'bad' : 'ok'}">Flags: ${esc(flagLine(a))}</span></summary>
+        <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
+        <table><tr><th>Subject</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Per question</th></tr>
+        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
+        ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}</div></details>`;
+    }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></div>`;
+  $('#stu')?.addEventListener('change', (e) => vResults(e.target.value));
+}
+
+async function vReport(sid, days = 7) {
+  const d = await studentData(sid);
+  if (d.error) return (view.innerHTML = `<h1>Report</h1><p class="muted">${esc(d.error)}</p>`);
+  const since = Date.now() - days * 864e5;
+  const rep = periodReport(d.attempts, d.answers, since);
+  const stat = (k, v, sub = '') => `<div class="card stat"><span class="lbl">${k}</span><span class="v">${v} <span class="u">${sub}</span></span></div>`;
+  const day = (ms) => new Date(ms).toLocaleDateString([], { dateStyle: 'medium' });
+  view.innerHTML = `<div class="head"><div class="title"><h1>${days === 7 ? 'Weekly' : days + '-day'} report · ${esc(d.name)}</h1><span class="muted">${day(since)} – ${day(Date.now())}</span></div><span class="grow"></span>${d.picker}
+      <select id="days" class="field auto noprint" aria-label="Period">${[7, 14, 30].map((n) => `<option value="${n}" ${n === days ? 'selected' : ''}>Last ${n} days</option>`).join('')}</select>
+      <button class="btn dark noprint" id="print">Print / Save as PDF</button></div>
+    ${rep.tests ? `<div class="stats">${stat('Tests taken', rep.tests)}${stat('Average', rep.avg + '%')}${stat('Best', rep.best + '%')}${stat('Flags', rep.flags.fullscreen_exit + rep.flags.tab_hidden, `${plural(rep.flags.fullscreen_exit, 'exit')} · ${plural(rep.flags.tab_hidden, 'switch', 'switches')}`)}</div>
+      <div class="tray"><span class="lbl">Scores</span><div class="card">${trendSvg(rep.attempts.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}</div></div>
+      <div class="tray"><span class="lbl">Summary</span><div class="card">${rep.strongest ? `Strongest subject: <b>${cap(rep.strongest.subject)}</b> (${rep.strongest.acc}% accuracy). ` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `Weakest: <b>${cap(rep.weakest.subject)}</b> (${rep.weakest.acc}%). ` : ''}${rep.strategies[0] ? `Best strategy so far: <b>${esc(STRATEGIES[rep.strategies[0].strategy] ?? rep.strategies[0].strategy)}</b> (${rep.strategies[0].avg}% average).` : ''}</div></div>
+      <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Accuracy</th><th>Per question</th><th>Right</th><th>Wrong</th><th>Skipped</th></tr>
+        ${rep.subjects.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
+      <div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${rep.weak.map((c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div><span class="num-r">${c.right}/${c.total}</span></div>`).join('') || '<p class="muted li">None yet</p>'}</div></div></div>`
+      : '<p class="muted">No tests submitted in this period.</p>'}`;
+  $('#stu')?.addEventListener('change', (e) => vReport(e.target.value, days));
+  $('#days').onchange = (e) => vReport(d.sid, Number(e.target.value));
+  $('#print').onclick = () => window.print();
+}
+
+go('questions');
+</script>
+</body>
+</html>
