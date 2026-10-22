@@ -288,27 +288,6 @@ a.todo:hover{background:var(--tray)}
   .tray{box-shadow:none}details.rv[open] summary~*{display:block}
 }
 
-/* ---- exam: sticky bars, timer warning, palette drawer on narrow screens ---- */
-body.exam .exam-top{position:sticky;top:0;z-index:5;background:#fff}
-#clock.low{background:var(--bad)}
-.mark-on{color:var(--mark)}
-.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.inl{display:inline-flex;margin-right:var(--s3)}
-#dlgText h2{font-size:var(--fs-lg);font-weight:500;margin:0 0 var(--s1)}
-#dlgText .tbl{margin:var(--s3) 0}
-#dlgText td,#dlgText th{padding:var(--s1) var(--s2);text-align:center}#dlgText td:first-child,#dlgText th:first-child{text-align:left}
-dialog{max-width:min(32rem,94vw)}
-.only-narrow,.scrim-pal{display:none}
-@media(max-width:860px){
-  .only-narrow{display:inline-flex;align-items:center}
-  .hide-narrow{display:none}
-  .side-pal{position:fixed;top:0;right:0;bottom:0;width:min(22rem,88vw);background:var(--bg);padding:var(--s3);overflow:auto;z-index:31;transform:translateX(105%);transition:transform .2s}
-  body.pal-open .side-pal{transform:none;box-shadow:0 0 40px rgba(15,23,42,.25)}
-  body.pal-open .scrim-pal{display:block;position:fixed;inset:0;background:rgba(15,23,42,.4);z-index:30}
-  body.exam .tray-foot{position:sticky;bottom:0;z-index:4;background:var(--tray);border-top:1px solid var(--line);padding:var(--s2)}
-  .shell{padding:0}.frame{border-radius:0;border:0}.frame.full{min-height:100vh}
-  .page{padding:var(--s4)}
-}
 /* result: time-use kinds */
 .split.even{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:860px){.split.even{grid-template-columns:1fr}}
@@ -334,3 +313,93 @@ th.ck,td.ck{width:2rem}
 .pq{padding:var(--s3) 0}
 .main td.mono{white-space:nowrap}
 .main details.rv summary{flex-wrap:wrap}
+
+/* ---- no zoom anywhere: pinch is blocked, taps stay fast; A− / A+ resize the whole layout instead ---- */
+html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+button,a,label,input,select{touch-action:manipulation}
+.btn.back{padding-left:var(--s2)}
+@media(max-width:1000px){.hide-sm{display:none}}
+
+/* start screen: three columns on a landscape tablet */
+.cols3{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr);gap:var(--s4);align-items:start}
+@media(max-width:900px){.cols3{grid-template-columns:1fr}}
+
+/* portrait: tests are landscape only */
+.rotate{display:none}
+@media(orientation:portrait){
+  body.stu .rotate{display:grid;position:fixed;inset:0;z-index:60;place-items:center;background:var(--bg);padding:var(--s5);text-align:center}
+  body.stu{overflow:hidden}
+}
+.rotate svg{width:4rem;height:4rem;margin:0 auto;fill:none;stroke:var(--blue);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- exam: exactly one screen. Top bar, question, actions on the left; palette on the right. Only the question pane scrolls (large text, long question). ---- */
+html:has(body.exam),body.exam{overflow:hidden;overscroll-behavior:none;height:100%}
+body.exam .shell{padding:0;max-width:none;min-height:0}
+.xm{position:fixed;inset:0;height:100vh;height:100dvh;display:grid;background:#fff;overflow:hidden;
+  grid-template-columns:minmax(0,1fr) clamp(15.5rem,28vw,24rem);grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-areas:"top top" "q side" "foot side";
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.xm-top{grid-area:top;display:flex;align-items:center;gap:var(--s3);padding:var(--s2) var(--s4);border-bottom:1px solid var(--line);min-width:0}
+.xm-top .brand{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:16rem}
+.xm-top .segs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.seg{white-space:nowrap}
+.seg.locked{color:var(--muted);opacity:.55}
+.seg.locked::before{content:'🔒 ';font-size:.75em}
+#clock{font-size:var(--fs-md);padding:var(--s2) var(--s3);min-width:6.5rem;justify-content:center}
+#clock.low{background:var(--bad)}
+.xm-q{grid-area:q;overflow-y:auto;overscroll-behavior:contain;padding:var(--s4) var(--s5);min-height:0}
+.qhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s2) var(--s3);margin-bottom:var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--rule)}
+.qhead h1{font-size:var(--fs-lg)}
+.xm .qimg{max-height:min(16rem,34dvh);object-fit:contain}
+.xm .opts{max-width:52rem}
+.xm-foot{grid-area:foot;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);padding:var(--s2) var(--s4);border-top:1px solid var(--line);background:#fff}
+.btn.mark{color:var(--mark);border-color:color-mix(in srgb,var(--mark) 45%,white)}
+.btn.mark:hover:not(:disabled){background:color-mix(in srgb,var(--mark) 8%,white)}
+.btn.wide{min-width:10rem}
+.chip.mark-chip{background:color-mix(in srgb,var(--mark) 14%,white);color:var(--mark)}
+.xm-side{grid-area:side;display:flex;flex-direction:column;gap:var(--s3);padding:var(--s3) var(--s4);background:var(--tray);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
+.xm-side .phase{display:flex;flex-direction:column;gap:2px;padding-bottom:var(--s2);border-bottom:1px solid var(--line)}
+.side-h{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s2)}
+.xm-side .pal{grid-template-columns:repeat(auto-fill,minmax(3rem,1fr));gap:var(--s2)}
+.xm-side .legend{display:grid;grid-template-columns:1fr 1fr;gap:var(--s1) var(--s3);font-size:var(--fs-xs)}
+.xm-side .legend .li{gap:var(--s2)}
+.xm-side .legend .sq.mini{width:1.125rem;height:1.125rem}
+.side-act{margin-top:auto;display:flex;flex-direction:column;gap:var(--s2)}
+.side-act .btn{width:100%}
+/* narrow landscape (small tablet, split screen): the palette column gets slimmer */
+@media(max-width:900px){.xm{grid-template-columns:minmax(0,1fr) 13.5rem}.xm-q{padding:var(--s3)}.btn.wide{min-width:0}}
+
+/* confirm dialog */
+dialog{max-width:min(34rem,94vw)}
+#dlgText h2{font-size:var(--fs-lg);font-weight:500;margin:0 0 var(--s1)}
+#dlgText .tbl{margin:var(--s3) 0}
+#dlgText td,#dlgText th{padding:var(--s1) var(--s2);text-align:center}#dlgText td:first-child,#dlgText th:first-child{text-align:left}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.inl{display:inline-flex;margin-right:var(--s3)}
+
+/* ---- OMR time: every answer on one screen, one column per subject, in paper order ---- */
+.xm.omr{grid-template-areas:"top top" "q side" "q side"}
+.omr-main{grid-area:q;overflow:auto;padding:var(--s3) var(--s4);display:flex;flex-direction:column;gap:var(--s3);min-height:0}
+.omr-cols{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4)}
+.omr-col{flex:1 1 12.5rem;display:flex;flex-direction:column;gap:1px}
+.omr-col>.lbl{padding:0 var(--s2) var(--s1)}
+.omr-row{display:flex;align-items:center;gap:0.4rem;width:100%;min-height:1.85rem;padding:0.1rem var(--s2);border:0;background:none;border-radius:0.375rem;text-align:left}
+.omr-row.five{margin-bottom:0.45rem;border-bottom:1px dashed var(--line)}
+.omr-row .n{font:600 var(--fs-sm) var(--mono);width:1.75rem;text-align:right}
+.bub{display:grid;place-items:center;width:1.45rem;height:1.45rem;border-radius:50%;border:1.5px solid var(--ring);font:500 0.6875rem var(--mono);color:var(--muted)}
+.bub.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.omr-row.blank .n{color:var(--muted)}
+.omr-row.blank .bub{border-style:dashed}
+.omr-row .ck{width:1rem;color:var(--ok);font-weight:700}
+.omr-row.done{opacity:.4}
+.omr-row:hover{background:#fff}
+/* large text: labels shorten instead of wrapping (container sizes are in rem, so they shrink as text grows) */
+.xm-top,.xm-foot,.xm-side{container-type:inline-size}
+.xm-top .row,.xm-foot{flex-wrap:nowrap}
+.xm-foot .btn{white-space:nowrap}
+@container (max-width:62rem){.xm-top .brand,.seg .long{display:none}}
+@container (max-width:44rem){.xm-foot .long{display:none}}
+.side-mid{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:var(--s3)}
+.xm-side{overflow:hidden}
+@container (max-width:17.5rem){.xm-side .legend{grid-template-columns:repeat(5,auto);justify-content:space-between}.xm-side .legend .grow{display:none}}
+body.exam #toast{top:4.25rem}

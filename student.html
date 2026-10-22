@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#1E4ED8">
 <title>Mock Tests</title>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
@@ -10,45 +10,82 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 </head>
-<body>
+<body class="stu">
 <div id="app" class="shell"></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div class="rotate" role="alert"><div class="card stack"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="6" width="20" height="36" rx="3"/><path d="M8 30a16 16 0 0 0 16 12M40 18A16 16 0 0 0 24 6"/></svg><b>Turn the tablet sideways</b><span class="muted">The tests work in landscape only.</span></div></div>
 <dialog id="dlg"><form method="dialog" class="stack"><div id="dlgText"></div>
   <div class="row"><button class="btn" value="no">Go back</button><button class="btn dark" value="yes" id="dlgOk">OK</button></div></form></dialog>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
-import { SUBJECTS, STRATEGIES, STATE, KIND, qStatus, stateCounts, attemptKind, guessValue, stratName, esc, fmt, cap, when, stat, phaseOf, pct, verdictOf, chapterStats, strategyStats, subjectStats, mistakes, trendSvg, mmss, plural } from './util.js';
+import { SUBJECTS, STRATEGIES, STATE, KIND, qStatus, stateCounts, attemptKind, guessValue, stratName, esc, fmt, cap, when, stat, phaseOf, pct, verdictOf, chapterStats, strategyStats, subjectStats, mistakes, trendSvg, mmss, plural, windowOf, boxSubject, omrColumns } from './util.js';
 
 const $ = (s) => document.querySelector(s);
 const app = $('#app');
 const hms = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':'); };
+const clockTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full */ } };
 
 const EXAM = 'exam.active';
-
 let S = read(EXAM); // active exam, kept on the tablet so a crash or restart resumes it
-let tick = 0, ticks = 0, wl = null, startTimer = 0, toastT = 0, palOpen = false;
-// Question text size, A− / A+ during the exam; kept on the tablet
-const setSize = (z) => { z = Math.min(1.4, Math.max(0.85, Math.round(z * 100) / 100)); write('ui.size', z); document.documentElement.style.setProperty('--q', z); return z; };
+let tick = 0, ticks = 0, wl = null, startTimer = 0, toastT = 0, armed = false, cw = null;
+
+// Text size: A− / A+ scale the root font size, and every size in style.css is in rem, so boxes, gaps, palette and pictures grow with the text
+const baseSize = () => (innerWidth >= 2400 ? 24 : innerWidth >= 1800 ? 20 : 16);
+const setSize = (z) => { z = Math.min(1.5, Math.max(0.8, Math.round(z * 10) / 10)); write('ui.size', z); document.documentElement.style.fontSize = baseSize() * z + 'px'; return z; };
 let size = setSize(read('ui.size') ?? 1);
+addEventListener('resize', () => setSize(size));
+const sizeCtl = () => `<span class="row tight" role="group" aria-label="Text size"><button class="btn sm" data-a="size" data-d="-1" aria-label="Smaller text">A−</button><button class="btn sm" data-a="size" data-d="1" aria-label="Larger text">A+</button></span>`;
 const persist = () => write(EXAM, S);
 
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 8000);
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 6000);
 }
-// html: trusted markup built here (the submit summary); text otherwise
+// html: trusted markup built here; text otherwise
 const ask = (text, ok = 'Confirm', html = '') => new Promise((res) => {
   if (html) $('#dlgText').innerHTML = html; else $('#dlgText').textContent = text;
   $('#dlgOk').textContent = ok;
   const d = $('#dlg'); d.returnValue = ''; d.onclose = () => res(d.returnValue === 'yes'); d.showModal();
 });
 const isFull = () => !!document.fullscreenElement || matchMedia('(display-mode: fullscreen)').matches;
+const landscape = () => screen.orientation?.lock?.('landscape').catch(() => {}); // works in fullscreen; the rotate notice covers the rest
+async function fullscreen() { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch { /* installed app is already fullscreen */ } landscape(); }
+
+/* ================= Routing: every screen has its own address, so the tablet's back button and the Back buttons go one screen back ================= */
+const PARENT = { start: 'tests', result: 'tests', progress: 'tests', mistakes: 'tests', practice: 'mistakes' };
+let depth = 0; // screens opened in this session; with none left, Back goes to the parent screen instead of leaving the app
+const here = () => location.hash.slice(1).split('/');
+function go(hash, replace = false) {
+  if (replace) history.replaceState(null, '', '#' + hash); else { history.pushState(null, '', '#' + hash); depth++; }
+  route();
+}
+function back() {
+  if (depth > 0) { depth--; history.back(); } else go(PARENT[here()[0]] ?? 'tests', true);
+}
+addEventListener('popstate', () => {
+  if (S) return holdExam();
+  depth = Math.max(0, depth - 1);
+  route();
+});
+async function route() {
+  if (S) return;
+  clearInterval(startTimer);
+  const [v, a, b] = here();
+  if (v === 'start' && a) return openTest(a);
+  if (v === 'result' && a) { const r = await rpc('get_result', { p_test: a, ...(b ? { p_attempt: b } : {}) }); return r.data ? showResult(r.data) : (toast(r.error?.message ?? 'Could not load'), go('tests', true)); }
+  if (v === 'progress') return progress();
+  if (v === 'mistakes') return notebook();
+  if (v === 'practice') return P ? drawPractice() : go('mistakes', true);
+  home();
+}
+const backBtn = () => `<button class="btn sm back" data-a="back" aria-label="Back">‹ Back</button>`;
+const netPill = () => `<span class="pill net ${navigator.onLine ? 'on' : ''}">${navigator.onLine ? 'ONLINE' : 'OFFLINE'}</span>`;
+const nav = (on) => `<div class="top">${on === 'home' ? '' : backBtn()}<span class="brand">Mock Tests</span>${[['home', 'Tests'], ['progress', 'Progress'], ['notebook', 'Mistakes']].map(([a, n]) => `<button class="tab ${on === a ? 'on' : ''}" data-a="${a}"${on === a ? ' aria-current="page"' : ''}>${n}</button>`).join('')}<span class="grow"></span>${netPill()}${sizeCtl()}<button class="btn sm" data-a="out">Sign out</button></div>`;
 
 /* ================= Home ================= */
 async function home() {
-  clearInterval(startTimer);
   document.body.classList.remove('exam');
   const me = await currentUser();
   if (!me) { location.href = 'index.html'; return; }
@@ -62,32 +99,36 @@ async function home() {
   app.innerHTML = `<div class="frame">${nav('home')}
     <div class="page"><h1>Your tests</h1><div class="tray"><span class="lbl">${plural(tests.length, 'test')}</span>
     <div class="card list">${tests.map((x) => {
-      const d = doneOf(x.id), start = Date.parse(x.start_at), open = Date.now() >= start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
-      const go = !left ? '' : open || read('paper.' + x.id) ? `<button class="btn sm dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Open'}</button>`
-        : `<span class="muted">Opens ${when(start - 15 * 60000)}</span>`;
+      const d = doneOf(x.id), w = windowOf(x, Date.now()), open = Date.now() >= w.start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
+      const go = !left ? '' : w.closed ? '<span class="chip">Window closed</span>' : open || read('paper.' + x.id) ? `<button class="btn dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Open'}</button>`
+        : `<span class="muted">Opens ${when(w.start - 15 * 60000)}</span>`;
       return `<div class="li"><div class="col"><b>${esc(x.title)}</b>
-        <span class="muted mono">${when(start)} · ${x.duration_min} min${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
-        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last` : 'Score'} ${d.at(-1).score}</span><button class="btn sm" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
-    }).join('') || '<p class="muted">No tests yet.</p>'}</div></div></div></div>`;
+        <span class="muted mono">${when(w.start)} · ${x.duration_min} min${w.lastStart ? ` · start by ${when(w.lastStart)}` : ''}${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
+        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last` : 'Score'} ${d.at(-1).score}</span><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
+    }).join('') || '<p class="muted li">No tests yet.</p>'}</div></div></div></div>`;
 }
 
 app.addEventListener('click', async (e) => {
+  if (S) armBack();
   const b = e.target.closest('[data-a]'); if (!b) return;
   const a = b.dataset.a;
+  if (a === 'size') { size = setSize(size + 0.1 * b.dataset.d); return; }
+  if (S && actions[a]) return inOmr() && !OMR_OK.includes(a) ? undefined : actions[a](b.dataset);
   if (a === 'out') logout();
-  else if (a === 'open') openTest(b.dataset.id);
-  else if (a === 'result' || a === 'att') { const r = await rpc('get_result', { p_test: b.dataset.id, ...(b.dataset.att ? { p_attempt: b.dataset.att } : {}) }); r.data ? showResult(r.data) : toast(r.error?.message ?? 'Could not load'); }
-  else if (a === 'home') home();
-  else if (a === 'progress') progress();
-  else if (a === 'notebook') notebook();
+  else if (a === 'back') back();
+  else if (a === 'open') go('start/' + b.dataset.id);
+  else if (a === 'result') go(`result/${b.dataset.id}`);
+  else if (a === 'att') go(`result/${b.dataset.id}/${b.dataset.att}`, true);
+  else if (a === 'home') go('tests');
+  else if (a === 'progress') go('progress');
+  else if (a === 'notebook') go('mistakes');
   else if (a === 'nbf') notebook(b.dataset.s, PROG);
-  else if (a === 'practice') practice(NB);
-  else if (a === 'rpractice') practice(RQ);
+  else if (a === 'practice') { startPractice(NB); go('practice'); }
+  else if (a === 'rpractice') { startPractice(RQ); go('practice'); }
   else if (a === 'rf') reviewFilter(b.dataset.f);
   else if (a === 'ppick') ppick(+b.dataset.i);
   else if (a === 'pnext') { P.i++; P.picked = null; drawPractice(); }
   else if (['strat', 'up', 'down', 'go'].includes(a)) startScreen.handle?.(a, b.dataset);
-  else if (S && actions[a]) actions[a](b.dataset);
 });
 
 /* ================= Download + start screen ================= */
@@ -98,34 +139,39 @@ async function openTest(id) {
     paper = { ...r.data, offset: Date.parse(r.data.now) - Date.now() }; // offset = server clock minus tablet clock
     write('paper.' + id, paper);
     await Promise.all(paper.questions.filter((q) => q.image_url).map((q) => fetch(q.image_url).catch(() => {}))); // lets the service worker cache images
-  } else if (!paper) return toast(r.error?.message ?? 'Could not download the paper');
+  } else if (!paper) { toast(r.error?.message ?? 'Could not download the paper'); return go('tests', true); }
   startScreen(paper);
 }
 
+// OMR minutes, never more than half the paper
+const omrMin = (t) => Math.min(Math.floor(t.duration_min / 2), Math.max(0, t.omr_min ?? 0));
+
 function startScreen(paper) {
+  document.body.classList.remove('exam');
   const t = paper.test;
-  let pick = t.strategies.includes('timebox') ? 'timebox' : t.strategies[0];
+  let pick = t.strategies.includes('timebox') ? 'timebox' : t.strategies[0], pinned = false;
   const has = SUBJECTS.filter((s) => paper.questions.some((q) => q.subject === s)); // drills may cover fewer subjects
-  let order = [...has], pinned = false;
+  const saved = (read('ui.order') ?? []).filter((s) => has.includes(s));
+  const order = [...saved, ...has.filter((s) => !saved.includes(s))]; // her last chosen order
   const marks = [...new Set(paper.questions.map((q) => q.marks))].join('/');
-  const wait = () => Date.parse(t.start_at) - (Date.now() + paper.offset);
+  const omr = omrMin(t), w = () => windowOf(t, Date.now() + paper.offset);
   const draw = () => {
-    app.innerHTML = `<div class="frame"><div class="top"><button class="btn sm" data-a="home">Back</button><span class="brand">${esc(t.title)}</span><span class="grow"></span>${netPill()}</div>
-      <div class="page"><h1>How will you attempt this paper?</h1>
-      <div class="split"><div class="tray"><span class="lbl">${plural(t.strategies.length, 'strategy', 'strategies')}</span>
+    app.innerHTML = `<div class="frame"><div class="top">${backBtn()}<span class="brand">${esc(t.title)}</span><span class="grow"></span>${netPill()}${sizeCtl()}</div>
+      <div class="page"><div class="cols3">
+      <div class="tray"><span class="lbl">1 · Strategy</span>
         <div class="card flush">${t.strategies.map((k) => `<button class="strat ${k === pick ? 'on' : ''}" data-a="strat" data-k="${k}" aria-pressed="${k === pick}"><span class="dot"></span>
-          <span class="txt"><b>${STRATEGIES[k][0]}</b><span class="muted">${STRATEGIES[k][1]}</span></span><span class="mono muted">${STRATEGIES[k][2]}</span></button>`).join('')}</div>
-        ${pick === 'two_pass' && order.length > 1 ? `<div class="card stack tight"><span class="lbl">Subject order</span>${order.map((s, i) => `<div class="row"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
-          <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div>` : ''}
-        <div class="tray"><span class="lbl">How the exam works</span><div class="card stack tight sm-text rules">
-          <div>Tap an option to answer. It is saved at once. <b>Clear</b> removes it.</div>
-          <div><b>Mark for review &amp; next</b> flags a question to come back to. A marked question that has an answer is still scored.</div>
-          <div class="legend row">${Object.entries(STATE).map(([k, n]) => `<span class="row tight"><span class="sq mini ${k}" aria-hidden="true"></span>${n}</span>`).join('')}</div>
+          <span class="txt"><b>${STRATEGIES[k][0]}</b><span class="muted">${STRATEGIES[k][1]}</span></span></button>`).join('')}</div></div>
+      <div class="stack">
+        ${order.length > 1 ? `<div class="tray"><span class="lbl">2 · Which subject first?</span><div class="card list">${order.map((s, i) => `<div class="li"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
+          <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div></div>` : ''}
+        <div class="tray"><span class="lbl">How it works</span><div class="card stack tight sm-text rules">
+          <div>Tap an option to answer; tap it again to clear. <b>Mark for review &amp; next</b> flags it to come back to; a marked answer still counts.</div>
+          <div>Done with a subject early? Tap <b>Finish subject</b> or <b>Next</b> on the right.</div>
           <div>Correct +${marks}, wrong −${t.neg_marks}, skipped 0. ${guessTip(+String(marks).split('/')[0], +t.neg_marks)}</div>
-          <div>The paper submits itself when the time ends. If the tablet restarts, open the app again and the test continues.</div></div></div></div>
+          ${omr ? `<div><b>Last ${omr} min: OMR.</b> Answers lock and you copy them to the paper OMR sheet. Keep the sheet and a black pen ready.</div>` : ''}</div></div></div>
       <div class="stack"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
         <div class="t">${esc(t.title)}</div>
-        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}</div>
+        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min${omr ? ` (${t.duration_min - omr} questions + ${omr} OMR)` : ''}<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}${w().lastStart ? `<br>Start by ${clockTime(w().lastStart)}` : ''}</div>
         <div class="cd" id="cd" aria-live="polite"></div></div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
           <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
@@ -136,44 +182,45 @@ function startScreen(paper) {
     navigator.getBattery?.().then((b) => { const el = $('#bat'); if (el) el.textContent = `${b.level >= 0.5 ? '✓' : '!'} Battery ${Math.round(b.level * 100)}%`; });
   };
   const tickStart = () => {
-    const w = wait(); const cd = $('#cd'), go = $('#go');
-    if (cd) cd.textContent = w > 0 ? 'Opens in ' + hms(w) : 'Ready';
+    const now = Date.now() + paper.offset, x = w(), cd = $('#cd'), go = $('#go');
     const spent = t.max_attempts && (t.attempts_used ?? 0) >= t.max_attempts;
-    if (cd && spent) cd.textContent = 'All attempts used';
-    if (go) go.disabled = w > 0 || !pinned || !paper.questions.length || spent;
+    if (cd) cd.textContent = spent ? 'All attempts used' : x.closed ? 'Window closed' : now < x.start ? 'Opens in ' + hms(x.start - now) : x.lastStart ? `Ready · ${hms(Math.max(0, x.lastStart - now))} left to start` : 'Ready';
+    if (go) go.disabled = now < x.start || x.closed || !pinned || !paper.questions.length || spent;
   };
   app.onchange = (e) => { if (e.target.id === 'pin') { pinned = e.target.checked; tickStart(); } };
   startScreen.handle = async (a, d) => {
     if (a === 'strat') { pick = d.k; draw(); }
-    else if (a === 'up' || a === 'down') { const i = +d.i, j = a === 'up' ? i - 1 : i + 1; [order[i], order[j]] = [order[j], order[i]]; draw(); }
-    else if (a === 'go') begin(paper, pick, pick === 'two_pass' ? order : has);
+    else if (a === 'up' || a === 'down') { const i = +d.i, j = a === 'up' ? i - 1 : i + 1; [order[i], order[j]] = [order[j], order[i]]; write('ui.order', order); draw(); }
+    else if (a === 'go') begin(paper, pick, order);
   };
   clearInterval(startTimer); startTimer = setInterval(tickStart, 1000);
   draw();
 }
 
 async function begin(paper, strategy, order) {
-  try { await document.documentElement.requestFullscreen(); } catch { /* installed app is already fullscreen */ }
+  await fullscreen();
   clearInterval(startTimer);
   const t = paper.test;
   let startedAt = Date.now() + paper.offset, attemptId = crypto.randomUUID(); // id made here so an offline start uploads as the same attempt
   const r = await rpc('start_attempt', { p_test: t.id, p_strategy: strategy, p_id: attemptId });
   if (r.error?.code) { toast(r.error.message); return startScreen(paper); } // a server rule said no
-  if (r.data?.submitted_at) { const x = await rpc('get_result', { p_test: t.id }); return x.data ? showResult(x.data) : home(); }
+  if (r.data?.submitted_at) return go(`result/${t.id}`, true);
   if (r.data?.id) attemptId = r.data.id; // an unfinished attempt on the server continues
   if (r.data?.started_at) startedAt = Date.parse(r.data.started_at); // offline start falls back to the tablet clock
   const first = (s) => paper.questions.find((q) => q.subject === s);
-  S = { testId: t.id, attemptId, title: t.title, strategy, order, startedAt, offset: paper.offset, durationMs: t.duration_min * 60000, neg: t.neg_marks, cheat: t.cheat_flags,
-        qs: paper.questions, answers: {}, marked: [], visited: [], times: {}, flags: [], cur: first(order[0]).id, subjIdx: 0, alerts: [], lastIdx: -1, pending: false };
+  S = { testId: t.id, attemptId, title: t.title, strategy, order, startedAt, offset: paper.offset, durationMs: t.duration_min * 60000, omrMs: omrMin(t) * 60000,
+        neg: t.neg_marks, cheat: t.cheat_flags, qs: paper.questions, answers: {}, marked: [], visited: [], times: {}, flags: [], done: [], copied: [],
+        cur: first(order[0]).id, subjIdx: 0, alerts: [], lastIdx: -1, pending: false };
   S.visited.push(S.cur); persist();
   app.onchange = null;
+  history.replaceState(null, '', '#exam');
   startEngine();
 }
 
 // What a guess is worth with this marking, so she knows when to attempt
 function guessTip(m, n) {
   const g4 = guessValue(4, m, n), g3 = guessValue(3, m, n), g2 = guessValue(2, m, n);
-  if (g4 > 0) return `A blind guess is worth ${g4} on average; after ruling out one option, ${g3}. Attempt when you can rule out one.`;
+  if (g4 > 0) return `A blind guess is worth ${g4} on average; after ruling out one option, ${g3}.`;
   if (g3 > 0) return `Do not guess blindly. After ruling out one option a guess is worth ${g3}.`;
   return g2 > 0 ? `Guess only when you are down to two options (worth ${g2}).` : 'Do not guess.';
 }
@@ -181,21 +228,43 @@ function guessTip(m, n) {
 /* ================= Exam engine ================= */
 const now = () => Date.now() + S.offset;
 const elapsed = () => now() - S.startedAt;
-const phase = () => phaseOf(S.strategy, elapsed(), S.durationMs, S.order);
+const qMs = () => S.durationMs - S.omrMs; // time for questions; the OMR block follows inside the same total
+const inOmr = () => S.omrMs > 0 && (S.omrNow || elapsed() >= qMs());
+const phase = () => phaseOf(S.strategy, elapsed(), qMs(), S.order);
 const bySubj = (s) => S.qs.filter((q) => q.subject === s);
 const qOf = (id) => S.qs.find((q) => q.id === id);
+const no = (q) => S.qs.indexOf(q) + 1; // paper number, the same as on the OMR sheet whatever order she picked
+const box = () => boxSubject(phase().lock, S.order, S.done);
 function allowed() {
   if (S.strategy === 'subject') return [S.order[S.subjIdx]];
-  if (S.strategy === 'timebox') { const p = phase(); return p.lock ? [p.lock] : S.order; }
+  if (S.strategy === 'timebox') { const b = box(); return b ? [b] : S.order; }
   return S.order;
 }
+// Where "Next" goes. lock: 'final' = cannot come back, 'box' = back only in review time, '' = free
+function nextOf() {
+  const cur = qOf(S.cur).subject;
+  if (S.strategy === 'subject') { const n = S.order[S.subjIdx + 1]; return n ? { from: cur, to: n, lock: 'final' } : null; }
+  if (S.strategy === 'timebox') { const b = box(); if (!b) return null; const n = S.order.slice(S.order.indexOf(b) + 1).find((s) => !S.done.includes(s)); return { from: b, to: n ?? null, lock: 'box' }; }
+  const n = S.order[S.order.indexOf(cur) + 1];
+  return n ? { from: cur, to: n, lock: '' } : null;
+}
+const firstOpen = (s) => { const l = bySubj(s); return (l.find((q) => S.answers[q.id] == null) ?? l[0]).id; };
+
 function flag(type) { if (S.cheat) { S.flags.push({ t: now(), type }); persist(); } }
 async function keepAwake() { try { wl = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ } }
 
+// Back is blocked in the exam. Chrome only honours a blocked back that follows a tap, so every tap re-arms it.
+function armBack() {
+  if (!armed) { history.pushState({ exam: 1 }, '', '#exam'); armed = true; }
+  if ('CloseWatcher' in window && !cw) { try { cw = new CloseWatcher(); cw.oncancel = (e) => { e.preventDefault(); holdExam(); }; cw.onclose = () => { cw = null; holdExam(); }; } catch { cw = null; } }
+}
+function holdExam() {
+  history.pushState({ exam: 1 }, '', '#exam'); armed = true;
+  if (S && !S.pending) toast('The test is running. Submit it to leave.');
+}
 function lockUI() {
   document.body.classList.add('exam');
-  history.pushState(null, '', location.href);
-  window.onpopstate = () => history.pushState(null, '', location.href); // back button does nothing
+  armed = false; armBack();
   window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ''; };
   document.oncontextmenu = (e) => e.preventDefault();
   document.onfullscreenchange = () => { if (S && !S.pending && !isFull()) { flag('fullscreen_exit'); render(); } };
@@ -203,13 +272,16 @@ function lockUI() {
   keepAwake();
 }
 function unlockUI() {
-  document.body.classList.remove('exam', 'pal-open'); palOpen = false;
-  window.onpopstate = window.onbeforeunload = document.oncontextmenu = document.onfullscreenchange = document.onvisibilitychange = null;
+  document.body.classList.remove('exam');
+  window.onbeforeunload = document.oncontextmenu = document.onfullscreenchange = document.onvisibilitychange = null;
+  if (cw) { cw.onclose = null; cw.destroy(); cw = null; }
+  armed = false;
   wl?.release?.().catch(() => {}); wl = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
 function startEngine() {
+  S.done ??= []; S.copied ??= []; S.omrMs ??= 0; // tests started before these existed
   lockUI();
   if (S.pending) return upload();
   checkPhase(true);
@@ -221,15 +293,20 @@ function onTick() {
   if (S.pending) return;
   const l = S.durationMs - elapsed();
   if (l <= 0) return finish();
+  const warn = (key, msg) => { if (!S.alerts.includes(key)) { S.alerts.push(key); toast(msg); } };
+  if (inOmr()) {
+    if (!S.alerts.includes('omr')) { warn('omr', 'OMR time. Copy your answers to the paper sheet.'); $('#dlg').close(); persist(); render(); }
+    if (l <= 60000) warn('t1', '1 min left');
+    return updateClock();
+  }
   if (!document.hidden) S.times[S.cur] = (S.times[S.cur] || 0) + 1;
   checkPhase(false);
-  const warn = (key, msg) => { if (!S.alerts.includes(key)) { S.alerts.push(key); toast(msg); } };
-  const p = phase();
+  const p = phase(), q = qMs() - elapsed(), what = S.omrMs ? 'before OMR' : 'left';
   if (!p.final && p.endsInMs <= 5 * 60000) warn('e' + p.idx, `5 min left: ${p.label}`);
-  if (l <= 10 * 60000) warn('t10', '10 min left');
-  if (l <= 5 * 60000) warn('t5', '5 min left');
-  if (l <= 60000) warn('t1', '1 min left');
-  updateClock(l, p);
+  if (q <= 10 * 60000) warn('t10', `10 min ${what}`);
+  if (q <= 5 * 60000) warn('t5', `5 min ${what}`);
+  if (q <= 60000) warn('t1q', `1 min ${what}`);
+  updateClock();
   if (++ticks % 5 === 0) persist();
 }
 
@@ -238,50 +315,66 @@ function checkPhase(initial) {
   if (p.idx === S.lastIdx) return;
   S.lastIdx = p.idx;
   if (S.strategy !== 'free' && !(S.strategy === 'subject' && p.idx === 0)) toast(S.strategy === 'subject' ? p.label : `Now: ${p.label}`);
-  if (p.lock && qOf(S.cur).subject !== p.lock) { // timed boxes move her to the next subject
-    const list = bySubj(p.lock);
-    S.cur = (list.find((q) => S.answers[q.id] == null) ?? list[0]).id;
-    if (!S.visited.includes(S.cur)) S.visited.push(S.cur);
-  }
+  const b = S.strategy === 'timebox' ? box() : null;
+  if (b && qOf(S.cur).subject !== b) { S.cur = firstOpen(b); if (!S.visited.includes(S.cur)) S.visited.push(S.cur); } // a time box moves her on
   persist();
   if (!initial) render();
 }
 
-function updateClock(l, p) {
-  l ??= S.durationMs - elapsed();
+function updateClock() {
+  const omr = inOmr(), l = omr ? S.durationMs - elapsed() : qMs() - elapsed();
   const c = $('#clock'); if (c) { c.textContent = hms(l); c.classList.toggle('low', l <= 5 * 60000); }
-  const ph = $('#phase'); if (ph) { p ??= phase(); ph.textContent = p.label + (isFinite(p.endsInMs) && !p.final ? ` · ends in ${hms(p.endsInMs).replace(/^00:/, '')}` : ''); }
+  const ph = $('#phase'); if (ph && !omr) {
+    const p = phase(), review = S.strategy === 'timebox' && !box(); // finished every box early
+    ph.textContent = review ? 'Review time: all subjects open' : p.label + (isFinite(p.endsInMs) && !p.final ? ` · ends in ${hms(p.endsInMs).replace(/^00:/, '')}` : '');
+  }
 }
 
 const status = (q) => qStatus(q.id, S.answers, S.marked, S.visited);
 
 function setCur(id) {
-  S.cur = id; palOpen = false;
+  S.cur = id;
   if (!S.visited.includes(id)) S.visited.push(id);
   persist(); render();
 }
 function step(dir) {
   const ids = S.order.filter((s) => allowed().includes(s)).flatMap((s) => bySubj(s).map((q) => q.id));
-  const i = ids.indexOf(S.cur);
-  setCur(ids[Math.max(0, Math.min(ids.length - 1, i + dir))] ?? S.cur);
+  const j = ids.indexOf(S.cur) + dir;
+  if (j >= 0 && j < ids.length) return setCur(ids[j]);
+  if (dir > 0 && nextOf()) { persist(); render(); return actions.next(); } // end of a subject: show the latest marks, then offer the next subject; never a dead end
+  render();
+  if (dir > 0) toast(S.omrMs ? 'Last question. Check marked ones, then go to the OMR sheet or submit.' : 'Last question. Check marked ones, then submit.');
 }
 
 const actions = {
-  pick: (d) => { S.answers[S.cur] = +d.i; persist(); render(); }, // answering keeps any review mark
+  pick: (d) => { if (S.answers[S.cur] === +d.i) delete S.answers[S.cur]; else S.answers[S.cur] = +d.i; persist(); render(); }, // tap the chosen option again to clear it
   save: () => step(1),
-  markNext: () => { if (!S.marked.includes(S.cur)) S.marked.push(S.cur); step(1); },
+  markNext: () => { if (!S.marked.includes(S.cur)) S.marked.push(S.cur); step(1); }, // a mark is only a flag: it never blocks moving on
   unmark: () => { S.marked = S.marked.filter((x) => x !== S.cur); persist(); render(); },
   clear: () => { delete S.answers[S.cur]; persist(); render(); },
   prev: () => step(-1),
-  subj: (d) => { if (allowed().includes(d.s)) { const l = bySubj(d.s); setCur(l[0].id); } },
-  jump: (d) => { if (allowed().includes(qOf(d.id).subject)) setCur(d.id); },
-  pal: () => { palOpen = !palOpen; render(); },
-  size: (d) => { size = setSize(size + 0.1 * d.d); },
-  finishSubject: async () => {
-    if (!(await ask(`Finish ${cap(S.order[S.subjIdx])}? You cannot come back to it.`, 'Finish subject'))) return;
-    S.subjIdx++; setCur(bySubj(S.order[S.subjIdx])[0].id);
+  subj: (d) => {
+    if (allowed().includes(d.s)) return setCur(firstOpen(d.s));
+    toast(S.strategy === 'subject' ? 'One subject at a time. Tap Finish on the right to move on.' : `${cap(box())} time box. Tap Finish ${cap(box())} on the right to move on early.`);
   },
-  full: async () => { try { await document.documentElement.requestFullscreen(); } catch { /* ignore */ } render(); },
+  jump: (d) => { if (allowed().includes(qOf(d.id).subject)) setCur(d.id); },
+  next: async () => {
+    const n = nextOf(); if (!n) return;
+    const l = bySubj(n.from), left = l.filter((q) => S.answers[q.id] == null).length, mk = l.filter((q) => S.marked.includes(q.id)).length;
+    const sum = `${cap(n.from)}: ${l.length - left} answered, ${left} not answered${mk ? `, ${mk} marked` : ''}.`;
+    if (n.lock === 'final' && !(await ask(`${sum} Finish ${cap(n.from)} and go to ${cap(n.to)}? You cannot come back to ${cap(n.from)}.`, `Go to ${cap(n.to)}`))) return;
+    if (n.lock === 'box' && !(await ask(`${sum} Finish ${cap(n.from)} now? ${n.to ? `${cap(n.to)} starts now and gets the time you save.` : 'Review time starts now: all subjects open.'} You can return to ${cap(n.from)} in the review time at the end.`, n.to ? `Go to ${cap(n.to)}` : 'Start review'))) return;
+    if (n.lock === 'final') S.subjIdx++;
+    if (n.lock === 'box') S.done.push(n.from);
+    if (n.lock === 'box' && !n.to) toast('Review time: all subjects open');
+    setCur(firstOpen(n.to ?? S.order[0]));
+  },
+  toOmr: async () => {
+    if (!(await ask(`Go to the OMR sheet now? Your answers lock. You get the remaining ${hms(S.durationMs - elapsed())} to copy them, then the test submits.`, 'Go to OMR'))) return;
+    S.omrNow = true; S.alerts.push('omr'); persist(); render(); // she chose it: no alert, and the next tick must not close a dialog
+  },
+  copied: (d) => { S.copied = S.copied.includes(d.id) ? S.copied.filter((x) => x !== d.id) : [...S.copied, d.id]; persist(); render(); },
+  full: async () => { await fullscreen(); render(); },
   submit: async () => {
     const c = stateCounts(S.qs, S.answers, S.marked, S.visited), left = S.qs.filter((q) => S.answers[q.id] == null).length;
     const tl = S.durationMs - elapsed(), cols = ['A', 'AM', 'M', 'S', 'V'];
@@ -293,32 +386,52 @@ const actions = {
   },
   retry: () => upload(),
 };
+const OMR_OK = ['copied', 'submit', 'full', 'retry']; // the only taps that work once answers lock
+
+const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${netPill()}${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
+const fullGate = () => (isFull() ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
+
 function render() {
   if (!S) return;
   if (S.pending) return renderPending();
-  const q = qOf(S.cur), allow = allowed(), list = bySubj(q.subject), idx = list.indexOf(q);
-  const marked = S.marked.includes(q.id), all = S.order.flatMap(bySubj), n = all.indexOf(q) + 1;
-  const count = (s, st) => bySubj(s).filter((x) => status(x) === st).length;
-  document.body.classList.toggle('pal-open', palOpen);
-  app.innerHTML = `<div class="frame full">
-    <div class="top exam-top"><span class="muted hide-narrow">${esc(S.title)}</span><b>${cap(q.subject)} ${idx + 1}/${list.length}</b><span class="grow"></span>
-      ${netPill()}<span class="row tight" role="group" aria-label="Text size"><button class="btn sm" data-a="size" data-d="-1" aria-label="Smaller text">A−</button><button class="btn sm" data-a="size" data-d="1" aria-label="Larger text">A+</button></span>
-      <button class="btn sm only-narrow" data-a="pal" aria-expanded="${palOpen}">Questions</button>
-      <span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></div>
-    <div class="page"><div class="head"><div class="title"><h1>Question ${n} <span class="muted">of ${all.length}</span></h1><span class="muted" id="phase"></span></div>
-      <div class="segs">${S.order.map((s) => `<button class="seg ${s === q.subject ? 'on' : ''}" aria-pressed="${s === q.subject}" data-a="subj" data-s="${s}" ${allow.includes(s) ? '' : 'disabled'}>${cap(s)} <span class="mono">${bySubj(s).filter((x) => S.answers[x.id] != null).length}/${bySubj(s).length}</span></button>`).join('')}</div></div>
-    <div class="split"><div class="tray"><div class="row tray-head"><span class="lbl">Marks +${q.marks} / −${S.neg}</span>${marked ? '<span class="grow"></span><span class="lbl mark-on">● Marked for review</span>' : ''}</div>
-      <div class="card q"><div class="qtext">${fmt(q.body)}</div>${img(q)}
-        <div class="opts" role="radiogroup" aria-label="Options">${q.options.map((o, i) => `<button class="optrow ${S.answers[q.id] === i ? 'on' : ''}" role="radio" aria-checked="${S.answers[q.id] === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span class="key">${'ABCD'[i]}</span><span>${fmt(o)}</span></button>`).join('')}</div></div>
-      <div class="row tray-foot">
-        <button class="btn" data-a="${marked ? 'unmark' : 'markNext'}">${marked ? 'Unmark' : 'Mark for review &amp; next'}</button><button class="btn" data-a="clear" ${S.answers[q.id] == null ? 'disabled' : ''}>Clear</button><span class="grow"></span>
-        ${S.strategy === 'subject' && S.subjIdx < S.order.length - 1 ? '<button class="btn" data-a="finishSubject">Finish subject</button>' : ''}
-        <button class="btn" data-a="prev" ${n === 1 ? 'disabled' : ''}>Previous</button><button class="btn dark" data-a="save">Save &amp; next</button></div></div>
-    <div class="scrim-pal" data-a="pal"></div>
-    <div class="stack side-pal" aria-label="Question palette"><div class="tray"><span class="lbl">${cap(q.subject)} · Questions</span><div class="card stack"><div class="pal">${list.map((x, i) => `<button class="sq ${status(x)} ${x.id === S.cur ? 'cur' : ''}" data-a="jump" data-id="${x.id}" aria-label="Question ${i + 1}, ${STATE[status(x)]}"${x.id === S.cur ? ' aria-current="true"' : ''}>${i + 1}</button>`).join('')}</div>
-        <div class="legend">${Object.entries(STATE).map(([k, n]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${n}</span><span class="mono">${count(q.subject, k)}</span></div>`).join('')}</div></div></div>
-      <button class="btn danger" data-a="submit">Submit test</button></div></div></div></div>
-    ${isFull() ? '' : '<div class="overlay"><div class="card stack"><b>Return to fullscreen to continue</b><button class="btn dark" data-a="full">Return to fullscreen</button></div></div>'}`;
+  if (inOmr()) return renderOmr();
+  const q = qOf(S.cur), allow = allowed(), list = bySubj(q.subject), idx = list.indexOf(q), ans = S.answers[q.id];
+  const marked = S.marked.includes(q.id), n = nextOf(), count = (st) => list.filter((x) => status(x) === st).length;
+  const nextLbl = !n ? '' : n.lock ? `Finish ${cap(n.from)} →` : `Next: ${cap(n.to)} →`;
+  app.innerHTML = `<div class="xm">
+    ${examTop(`<div class="segs" role="group" aria-label="Subjects">${S.order.map((s) => `<button class="seg ${s === q.subject ? 'on' : ''} ${allow.includes(s) ? '' : 'locked'}" aria-pressed="${s === q.subject}" data-a="subj" data-s="${s}">${cap(s).slice(0, 3)}<span class="long">${s.slice(3)}</span> <span class="mono">${bySubj(s).filter((x) => S.answers[x.id] != null).length}/${bySubj(s).length}</span></button>`).join('')}</div>`)}
+    <main class="xm-q"><div class="qhead"><h1>Question ${no(q)}</h1><span class="muted">${cap(q.subject)} ${idx + 1} of ${list.length} · +${q.marks} / −${S.neg}</span><span class="grow"></span>${marked ? '<span class="chip mark-chip">● Marked for review</span>' : ''}</div>
+      <div class="qtext">${fmt(q.body)}</div>${img(q)}
+      <div class="opts" role="radiogroup" aria-label="Options">${q.options.map((o, i) => `<button class="optrow ${ans === i ? 'on' : ''}" role="radio" aria-checked="${ans === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span class="key">${'ABCD'[i]}</span><span>${fmt(o)}</span></button>`).join('')}</div></main>
+    <footer class="xm-foot"><button class="btn" data-a="clear" ${ans == null ? 'disabled' : ''}>Clear</button>
+      <button class="btn mark" data-a="markNext">Mark<span class="long"> for review</span> &amp; next</button>${marked ? '<button class="btn" data-a="unmark">Unmark</button>' : ''}<span class="grow"></span>
+      <button class="btn" data-a="prev" ${allow.flatMap(bySubj)[0] === q ? 'disabled' : ''} aria-label="Previous">‹<span class="long"> Previous</span></button><button class="btn dark wide" data-a="save">Save &amp; next ›</button></footer>
+    <aside class="xm-side" aria-label="Question palette">
+      <div class="phase"><span class="lbl">${stratName(S.strategy)}</span><span id="phase" class="sm-text"></span>${S.omrMs ? `<span class="muted">Then ${S.omrMs / 60000} min OMR</span>` : ''}</div>
+      <div class="side-h"><b>${cap(q.subject)}</b><span class="muted">${list.filter((x) => S.answers[x.id] != null).length} of ${list.length} answered</span></div>
+      <div class="side-mid"><div class="pal">${list.map((x) => `<button class="sq ${status(x)} ${x.id === S.cur ? 'cur' : ''}" data-a="jump" data-id="${x.id}" aria-label="Question ${no(x)}, ${STATE[status(x)]}"${x.id === S.cur ? ' aria-current="true"' : ''}>${no(x)}</button>`).join('')}</div>
+      <div class="legend">${Object.entries(STATE).map(([k, nm]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${nm}</span><span class="mono">${count(k)}</span></div>`).join('')}</div></div>
+      <div class="side-act">${n ? `<button class="btn dark" data-a="next">${nextLbl}</button>` : ''}
+        ${S.omrMs ? '<button class="btn" data-a="toOmr">Go to OMR sheet</button>' : ''}<button class="btn danger" data-a="submit">Submit test</button></div></aside></div>
+    ${fullGate()}`;
+  updateClock();
+}
+
+// Last minutes: every answer on one screen, laid out like the paper sheet, to copy with a pen
+function renderOmr() {
+  const cols = omrColumns(S.qs, S.qs.length > 100 ? 25 : 20), rows = Math.max(...cols.map((c) => c.items.length));
+  const got = S.qs.filter((q) => S.answers[q.id] != null);
+  app.innerHTML = `<div class="xm omr">
+    ${examTop('<span class="chip mark-chip">OMR time · answers locked</span>')}
+    <main class="omr-main"><p class="sm-text">Copy each answer to the paper OMR sheet. Check the question number first. Leave blank rows blank. Tap a row when it is filled.</p>
+      <div class="omr-cols" style="--rows:${rows}">${cols.map((c) => `<div class="omr-col"><span class="lbl">${c.subject.slice(0, 3)}</span>${c.items.map(({ n, q }) => {
+        const a = S.answers[q.id], done = S.copied.includes(q.id);
+        return `<button class="omr-row ${a == null ? 'blank' : ''} ${done ? 'done' : ''} ${n % 5 === 0 ? 'five' : ''}" data-a="copied" data-id="${q.id}" aria-pressed="${done}" aria-label="Question ${n}: ${a == null ? 'blank' : 'ABCD'[a]}${done ? ', copied' : ''}"><span class="n">${n}</span>${[0, 1, 2, 3].map((i) => `<span class="bub ${a === i ? 'on' : ''}">${'ABCD'[i]}</span>`).join('')}<span class="ck" aria-hidden="true">${done ? '✓' : ''}</span></button>`;
+      }).join('')}</div>`).join('')}</div></main>
+    <aside class="xm-side"><div class="phase"><span class="lbl">OMR sheet</span><span class="sm-text">The test submits itself when the time ends.</span></div>
+      <div class="stack tight">${stat('Answered', got.length, 'to fill', '')}${stat('Blank', S.qs.length - got.length, 'leave empty', '')}${stat('Copied', got.filter((q) => S.copied.includes(q.id)).length, `of ${got.length}`, '')}</div>
+      <div class="side-act"><button class="btn danger" data-a="submit">Submit test</button></div></aside></div>
+    ${fullGate()}`;
   updateClock();
 }
 
@@ -346,7 +459,10 @@ async function upload() {
   S.busy = false;
   if (r.error) { S.err = r.error.message; persist(); return render(); }
   localStorage.removeItem(EXAM); localStorage.removeItem('paper.' + S.testId);
-  S = null; unlockUI(); showResult(r.data);
+  const id = S.testId;
+  S = null; unlockUI();
+  history.replaceState(null, '', `#result/${id}/${r.data.attempt.id}`); depth = 0;
+  showResult(r.data);
 }
 window.addEventListener('online', () => { if (S?.pending) upload(); });
 
@@ -354,7 +470,7 @@ window.addEventListener('online', () => { if (S?.pending) upload(); });
 const TARGET = 120; // seconds per question: 120 min for 60 questions
 let RQ = []; // this result's questions, for "Practise mistakes"
 function showResult({ attempt: a, test, questions: qs, attempts = [] }) {
-  document.body.classList.remove('exam', 'pal-open');
+  document.body.classList.remove('exam');
   $('#toast').classList.remove('on');
   const neg = test?.neg_marks ?? 1, ans = a.answers, times = a.times || {}, marked = a.marked || [];
   const verdict = (q) => verdictOf(ans[q.id], q.correct);
@@ -373,22 +489,22 @@ function showResult({ attempt: a, test, questions: qs, attempts = [] }) {
   const slow = [...qrows].sort((x, y) => y.secs - x.secs).slice(0, 5).filter((q) => q.secs);
   const FILTERS = [['all', 'All', qrows.length], ['W', 'Wrong', a.wrong], ['S', 'Skipped', a.skipped], ['C', 'Correct', a.correct], ['M', 'Marked', qrows.filter((q) => marked.includes(q.id)).length]];
   const left = (test?.max_attempts ?? 1) - attempts.length, prevA = attempts.find((x) => x.attempt_no === a.attempt_no - 1);
-  app.innerHTML = `<div class="frame"><div class="top"><span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${stratName(a.strategy)}</span><span class="grow"></span><button class="btn sm" data-a="progress">Progress</button><button class="btn sm" data-a="home">Back to tests</button></div>
+  app.innerHTML = `<div class="frame"><div class="top">${backBtn()}<span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${stratName(a.strategy)}</span><span class="grow"></span>${sizeCtl()}<button class="btn sm" data-a="progress">Progress</button></div>
     <div class="page">${attempts.length > 1 || left > 0 ? `<div class="row tight" role="group" aria-label="Attempts">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" aria-pressed="${x.id === a.id}" data-a="att" data-id="${test.id}" data-att="${x.id}">Attempt ${x.attempt_no} <span class="mono">${x.score}</span></button>`).join('')}
-      <span class="grow"></span>${left > 0 && test?.id ? `<button class="btn sm dark" data-a="open" data-id="${test.id}">Retake · ${plural(left, 'attempt')} left</button>` : ''}</div>` : ''}
+      <span class="grow"></span>${left > 0 && test?.id ? `<button class="btn dark" data-a="open" data-id="${test.id}">Retake · ${plural(left, 'attempt')} left</button>` : ''}</div>` : ''}
     <div class="hero"><div class="stat"><span class="lbl">Score</span><span class="v">${a.score} <span class="u">/ ${total}</span></span><span class="delta" id="delta">${mine}%</span></div>
       <div class="stats">${stat('✓ Correct', a.correct, '', '')}${stat('✗ Wrong', a.wrong, `−${a.wrong * neg} marks`, '')}${stat('– Skipped', a.skipped, '', '')}${stat('Accuracy', tried ? Math.round((a.correct / tried) * 100) + '%' : '–', `${tried} of ${qs.length} tried`, '')}${stat('Time used', mmss(used).replace(/:\d+$/, '') + ' min', '', '')}</div></div>
-    <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.subject.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q, i) => `<i class="${verdict(q)}" title="Q${i + 1} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
+    <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.subject.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q) => `<i class="${verdict(q)}" title="Q${q.position} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
       <div class="row muted"><span class="sqs"><i class="C"></i></span>Correct<span class="sqs"><i class="W"></i></span>Wrong<span class="sqs"><i></i></span>Skipped</div></div></div>
     <div class="split even"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Score</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
       ${rows.map((r) => `<tr><td>${cap(r.subject)}</td><td class="mono">${r.score} / ${r.max}</td><td class="mono">${r.acc == null ? '–' : r.acc + '%'}</td><td class="mono">${mmss(r.secs)}</td><td class="mono">${mmss(r.perQ)}</td></tr>`).join('')}</table></div></div>
     <div class="tray"><span class="lbl">How you used time · target 2 min a question</span><div class="card list">${Object.entries(KIND).filter(([k]) => kinds[k]).map(([k, n]) => `<div class="li"><span class="kind ${k}" aria-hidden="true"></span><span class="grow">${n}</span><span class="num-r">${kinds[k]}</span></div>`).join('')}
       ${kinds.wrong_fast ? `<p class="muted li">${plural(kinds.wrong_fast, 'question')} answered wrong in under 36 s. Slow down on these: each cost ${4 + +neg} marks against a correct answer.</p>` : ''}</div></div></div>
-    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qrows.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span>${verdictChip(verdict(q))}<span class="mono">${mmss(q.secs)}</span></div>`).join('')}</div></div>` : ''}
+    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">Q${q.position}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span>${verdictChip(verdict(q))}<span class="mono">${mmss(q.secs)}</span></div>`).join('')}</div></div>` : ''}
     ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise from this test</span><div class="card list">${weakHere.map(chapterRow).join('')}</div></div>` : ''}
     <div class="tray"><div class="row tray-head"><span class="lbl">Review solutions</span><span class="grow"></span>${RQ.length ? `<button class="btn sm dark" data-a="rpractice">Practise ${RQ.length} wrong and skipped</button>` : ''}</div>
       <div class="row tight filt" role="group" aria-label="Show">${FILTERS.map(([k, n, c], i) => `<button class="tab ${i ? '' : 'on'}" data-a="rf" data-f="${k}" aria-pressed="${!i}">${n} <span class="mono">${c}</span></button>`).join('')}</div>
-      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">${cap(q.subject.slice(0, 3))} ${q.position}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div></div></div>`;
+      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">Q${q.position}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div></div></div>`;
   if (prevA) { // change vs her previous attempt at this paper
     const d = mine - Math.round((prevA.score / total) * 100), el = $('#delta');
     el.textContent = `${mine}% · ${d >= 0 ? '+' : '−'}${Math.abs(d)} vs attempt ${prevA.attempt_no}`; el.classList.add(d >= 0 ? 'up' : 'down');
@@ -409,11 +525,9 @@ function reviewFilter(f) {
 }
 
 /* ================= Progress, mistake notebook, practice ================= */
-const netPill = () => `<span class="pill net ${navigator.onLine ? 'on' : ''}">${navigator.onLine ? 'ONLINE' : 'OFFLINE'}</span>`;
 const airText = () => (navigator.onLine ? 'Turn on airplane mode, then tap Start' : '✓ Airplane mode is on');
 const syncNet = () => { document.querySelectorAll('.net').forEach((e) => (e.outerHTML = netPill())); const a = $('#air'); if (a) a.textContent = airText(); };
 addEventListener('online', syncNet); addEventListener('offline', syncNet);
-const nav = (on) => `<div class="top"><span class="brand">Mock Tests</span>${[['home', 'Tests'], ['progress', 'Progress'], ['notebook', 'Mistakes']].map(([a, n]) => `<button class="tab ${on === a ? 'on' : ''}" data-a="${a}"${on === a ? ' aria-current="page"' : ''}>${n}</button>`).join('')}<span class="grow"></span>${netPill()}<button class="btn sm" data-a="out">Sign out</button></div>`;
 const blocks = (n) => `<span class="bar" role="img" aria-label="${Math.round(n)}%">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(n / 10) ? 'on' : ''}"></i>`).join('')}</span>`;
 const chapterRow = (c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></div>`;
 const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
@@ -429,7 +543,7 @@ async function loadProgress() {
 }
 
 async function progress() {
-  const d = await loadProgress(); if (!d) return;
+  const d = await loadProgress(); if (!d) return go('tests', true);
   const at = d.attempts;
   let body = '<p class="muted">Take a test to see your progress here.</p>';
   if (at.length) {
@@ -447,7 +561,7 @@ async function progress() {
 }
 
 async function notebook(filter = '', data) {
-  const d = data ?? (await loadProgress()); if (!d) return;
+  const d = data ?? (await loadProgress()); if (!d) return go('tests', true);
   const all = mistakes(d.answers, read('notebook.cleared') ?? {});
   NB = filter ? all.filter((r) => r.subject === filter) : all;
   const chip = (s, n) => `<button class="tab ${filter === s ? 'on' : ''}" aria-pressed="${filter === s}" data-a="nbf" data-s="${s}">${n} <span class="mono">${(s ? all.filter((r) => r.subject === s) : all).length}</span></button>`;
@@ -457,14 +571,14 @@ async function notebook(filter = '', data) {
 }
 
 // Untimed retry with instant feedback; a correct answer clears the question from the notebook
-function practice(list) { P = { list: [...list].sort(() => Math.random() - 0.5), i: 0, right: 0, picked: null }; drawPractice(); }
+function startPractice(list) { P = { list: [...list].sort(() => Math.random() - 0.5), i: 0, right: 0, picked: null }; }
 function drawPractice() {
   if (P.i >= P.list.length) {
-    app.innerHTML = `<div class="frame">${nav('notebook')}<div class="page"><h1>Practice done</h1><div class="stats one">${stat('Right', P.right, 'of ' + P.list.length)}</div><div class="row"><button class="btn dark" data-a="notebook">Back to notebook</button></div></div></div>`;
+    app.innerHTML = `<div class="frame">${nav('practice')}<div class="page"><h1>Practice done</h1><div class="stats one">${stat('Right', P.right, 'of ' + P.list.length)}</div><div class="row"><button class="btn dark" data-a="back">Done</button></div></div></div>`;
     return;
   }
   const q = P.list[P.i], done = P.picked != null;
-  app.innerHTML = `<div class="frame">${nav('notebook')}<div class="page"><div class="head"><h1>Question ${P.i + 1} of ${P.list.length}</h1><span class="grow"></span><span class="chip">${cap(q.subject)} · ${esc(q.chapter)}</span></div>
+  app.innerHTML = `<div class="frame">${nav('practice')}<div class="page"><div class="head"><h1>Question ${P.i + 1} of ${P.list.length}</h1><span class="grow"></span><span class="chip">${cap(q.subject)} · ${esc(q.chapter)}</span></div>
     <div class="tray"><div class="card q stack"><div><div class="qtext">${fmt(q.body)}</div>${img(q)}</div>
     <div role="radiogroup" aria-label="Options">${q.options.map((o, i) => { const v = done && i === q.correct ? 'right' : done && i === P.picked ? 'wrong' : ''; return `<button class="optrow ${P.picked === i ? 'on' : ''} ${v}" role="radio" aria-checked="${P.picked === i}" data-a="ppick" data-i="${i}" ${done ? 'disabled' : ''}><span class="dot"></span><span class="key">${'ABCD'[i]}</span><span>${fmt(o)}</span>${v === 'right' ? '<span class="tag">✓ correct</span>' : v === 'wrong' ? '<span class="tag">✗ your answer</span>' : ''}</button>`; }).join('')}</div>
     ${done ? `<p class="sol" role="status"><b>${P.picked === q.correct ? 'Correct.' : 'Not quite.'}</b> ${fmt(q.solution || '')}</p><div class="row"><button class="btn dark" data-a="pnext">${P.i + 1 < P.list.length ? 'Next' : 'Finish'}</button></div>` : ''}</div></div></div></div>`;
@@ -478,8 +592,9 @@ function ppick(i) {
 }
 
 /* ================= Boot ================= */
-if (S) startEngine(); // resume after a crash or restart, works offline
-else home();
+if (matchMedia('(display-mode: fullscreen)').matches) landscape();
+if (S) { history.replaceState(null, '', '#exam'); startEngine(); } // resume after a crash or restart, works offline
+else route();
 </script>
 </body>
 </html>

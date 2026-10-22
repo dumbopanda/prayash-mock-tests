@@ -3,8 +3,8 @@
 export const SUBJECTS = ['physics', 'chemistry', 'mathematics', 'biology'];
 // key: [name, what she does, timing]
 export const STRATEGIES = {
-  subject: ['Subject by subject', 'One subject at a time. No going back.', 'Alerts every 30 min'],
-  timebox: ['Time-boxed subjects', 'Equal time per subject, then 20 min to return to marked questions.', '100 min split + 20 min'],
+  subject: ['Subject by subject', 'One subject at a time. Move on when done. No going back.', 'Alerts every 30 min'],
+  timebox: ['Time-boxed subjects', 'Equal time per subject. Done early? Move on. Then time to return to marked questions.', '100 min split + 20 min'],
   three_round: ['Three-round sweep', 'Easy questions first across the paper, then moderate, then hard.', '50 + 45 + 25 min'],
   two_pass: ['Strongest first + two-pass', 'You pick the subject order. Skip and mark in pass 1, return in pass 2.', '80 + 40 min'],
   free: ['Free mode', 'No guidance. The plain exam and the total timer.', 'Total timer only'],
@@ -230,4 +230,27 @@ export function barsSvg(values, labels) {
   const w = 560, h = 130, T = 18, B = 22, bw = w / values.length, max = Math.max(1, ...values), y = (v) => T + (1 - v / max) * (h - T - B);
   return `<svg class="bars" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(values.map((v, i) => `${labels[i]}: ${v}`).join(', '))}">
     ${values.map((v, i) => `<rect class="${v ? '' : 'z'}" x="${i * bw + 5}" y="${v ? y(v) : h - B - 3}" width="${bw - 10}" height="${v ? h - B - y(v) : 3}" rx="3"/>${v ? `<text class="val" x="${i * bw + bw / 2}" y="${y(v) - 5}" text-anchor="middle">${v}</text>` : ''}<text class="x" x="${i * bw + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(labels[i])}</text>`).join('')}</svg>`;
+}
+
+/* ---------- window, time boxes, OMR ---------- */
+
+// When she can start. lastStart: latest start that still ends inside the window (2 min grace, as on the server).
+export function windowOf(t, nowMs) {
+  const start = Date.parse(t.start_at), end = t.end_at ? Date.parse(t.end_at) : null;
+  const lastStart = end == null ? null : end - t.duration_min * 60000;
+  return { start, end, lastStart, closed: lastStart != null && nowMs > lastStart + 120000 };
+}
+
+// The subject a time box holds her in: the scheduled one, or a later one if she finished early. null = all open.
+export const boxSubject = (lock, order, done) => (lock ? order.slice(Math.max(0, order.indexOf(lock))).find((s) => !done.includes(s)) ?? null : null);
+
+// OMR transfer sheet: paper numbers in columns of at most `rows`; a new column starts with each subject
+export function omrColumns(qs, rows = 15) {
+  const cols = [];
+  qs.forEach((q, i) => {
+    const c = cols.at(-1);
+    if (!c || c.subject !== q.subject || c.items.length >= rows) cols.push({ subject: q.subject, items: [] });
+    cols.at(-1).items.push({ n: i + 1, q });
+  });
+  return cols;
 }

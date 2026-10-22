@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
+import { windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -93,4 +93,16 @@ assert.equal(attemptKind(1, 1, 60, 120), 'correct'); assert.equal(attemptKind(1,
 assert.equal(attemptKind(0, 1, 20, 120), 'wrong_fast'); assert.equal(attemptKind(0, 1, 100, 120), 'wrong'); assert.equal(attemptKind(0, 1, 300, 120), 'wrong_slow');
 assert.equal(attemptKind(null, 1, 5, 120), 'skipped'); assert.equal(attemptKind(null, 1, 150, 120), 'skipped_late');
 assert.equal(guessValue(4, 4, 1), 0.25); assert.equal(guessValue(3, 4, 1), 0.67); assert.equal(guessValue(4, 1, 1), -0.5);
+// window: 3 h window, 2 h paper -> start by +1 h
+{ const w = windowOf({ start_at: '2026-10-23T10:00:00Z', end_at: '2026-10-23T13:00:00Z', duration_min: 120 }, Date.parse('2026-10-23T11:01:00Z'));
+  assert.equal(w.lastStart, Date.parse('2026-10-23T11:00:00Z')); assert.equal(w.closed, false);
+  assert.equal(windowOf({ start_at: '2026-10-23T10:00:00Z', end_at: '2026-10-23T13:00:00Z', duration_min: 120 }, Date.parse('2026-10-23T11:03:00Z')).closed, true);
+  assert.equal(windowOf({ start_at: '2026-10-23T10:00:00Z', duration_min: 120 }, Date.now()).closed, false); }
+// time boxes: finishing early moves on; finishing all opens review
+const O = ['physics', 'chemistry', 'mathematics'];
+assert.equal(boxSubject('physics', O, []), 'physics'); assert.equal(boxSubject('physics', O, ['physics']), 'chemistry');
+assert.equal(boxSubject('chemistry', O, ['physics', 'chemistry', 'mathematics']), null); assert.equal(boxSubject(null, O, []), null);
+// OMR columns
+{ const qs = [...Array(20)].map((_, i) => ({ subject: i < 18 ? 'physics' : 'biology' })), c = omrColumns(qs, 15);
+  assert.deepEqual(c.map((x) => [x.subject, x.items.length, x.items[0].n]), [['physics', 15, 1], ['physics', 3, 16], ['biology', 2, 19]]); }
 console.log('util ok');

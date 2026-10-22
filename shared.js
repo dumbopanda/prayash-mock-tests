@@ -21,3 +21,8 @@ export async function logout() {
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// No zooming anywhere in the app: pinch is blocked in CSS (touch-action), keyboard and trackpad zoom here
+addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault(); });
+addEventListener('gesturestart', (e) => e.preventDefault()); // Safari pinch

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Admin · Mock Tests</title>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
@@ -17,6 +17,7 @@
   <div class="shell-r">
     <header class="topbar">
       <button class="icon-btn menu" id="menu" type="button" aria-label="Open menu"><svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
+      <button class="btn sm back" id="goback" type="button" aria-label="Back">‹ Back</button>
       <nav class="crumb" id="crumb" aria-label="Breadcrumb"></nav><span class="grow"></span>
       <button class="icon-btn" id="refresh" type="button" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"/></svg></button>
       <div class="acct"><button class="avatar" id="acct" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account"></button>
@@ -88,6 +89,7 @@ $('#nav').innerHTML = NAV.map(([g, items]) => `<div class="nav-g"><span class="l
 // Routing by URL hash, so reload and the back button stay on the same page
 const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, preview: vPreview, results: vResults, sheet: vSheet, report: vReport };
 const SUB = { testform: ['tests', 'Test'], preview: ['tests', 'Preview'], sheet: ['results', 'Answer sheet'] }; // pages not in the sidebar: [parent, name]
+const UP = { testform: 'tests', preview: 'tests', sheet: 'results', form: 'questions', import: 'questions' }; // Back goes here; other pages go to the dashboard
 let ARG;
 function go(v, arg) { ARG = arg; if (location.hash.slice(1) === v) render(); else location.hash = v; }
 function render() {
@@ -98,6 +100,8 @@ function render() {
   let [g, n] = (() => { for (const [g, items] of NAV) { const i = items.find((x) => x[0] === nv); if (i) return [g, i[1]]; } })();
   if (SUB[v]) n = `<a class="link" href="#${nv}">${n}</a><span>/</span><b>${SUB[v][1]}</b>`; else n = `<b>${n}</b>`;
   $('#crumb').innerHTML = `<span>${g}</span><span>/</span>${n}`;
+  $('#goback').hidden = v === 'dash';
+  $('#goback').onclick = () => go(UP[v] ?? 'dash'); // one level up, the same on every page
   drawer(false);
   scrollTo(0, 0);
   views[v](arg);
@@ -107,7 +111,7 @@ addEventListener('hashchange', render);
 /* ---------- Dashboard ---------- */
 const DAY = 864e5;
 // Draft / Upcoming / Live (in its slot) / Open (slot over; she can still take it)
-const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
+const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : t.end_at && n > Date.parse(t.end_at) ? 'Closed' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
 async function vDash() {
@@ -432,8 +436,8 @@ async function vTests() {
     <div class="head"><div class="title"><h1>Tests</h1><span class="muted">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
     <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card tbl"><table>
       <tr><th>Title</th><th>Opens</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th>Taken</th><th></th></tr>
-      ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}</td>
-        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks} · ${t.duration_min}m</td>
+      ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}${t.end_at ? `<br><span class="muted">closes ${when(t.end_at)}</span>` : ''}</td>
+        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks} · ${t.duration_min}m${t.omr_min ? ` · OMR ${t.omr_min}m` : ''}</td>
         <td>${statusChip(t)}</td><td class="mono">${t.attempts.filter((a) => a.submitted_at).length || '–'}${t.attempts.some((a) => !a.submitted_at) ? ' <span class="chip">in progress</span>' : ''}</td>
         <td class="actions"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm ${t.published ? '' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
@@ -509,7 +513,7 @@ async function vTestForm(t) {
     fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
   ]);
-  const hasAtt = !(await sb.from('tests').select('max_attempts').limit(1)).error; // ponytail: false until db/ SQL is applied
+  const winH = t?.end_at ? Math.round(((Date.parse(t.end_at) - Date.parse(t.start_at)) / 36e5) * 100) / 100 : '';
   if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
   const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
@@ -521,9 +525,14 @@ async function vTestForm(t) {
         <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${t ? toLocal(t.start_at) : soon()}"></div>
         <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="${t?.duration_min ?? 120}"></div>
         <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
-        ${hasAtt ? `<div class="col s"><label class="lbl" for="att">Attempts</label><input id="att" class="field mono" type="number" min="1" max="10" value="${t?.max_attempts ?? 3}"></div>` : ''}
+        <div class="col s"><label class="lbl" for="att">Attempts</label><input id="att" class="field mono" type="number" min="1" max="10" value="${t?.max_attempts ?? 3}"></div>
       </div>
-      <p class="muted">She can download it 15 minutes before it opens and start any time after. Every attempt is kept with its score and times.</p>
+      <div class="row">
+        <div class="col m"><label class="lbl" for="win">Open for (hrs)</label><input id="win" class="field mono" type="number" min="0" step="0.5" placeholder="No limit" value="${winH}"></div>
+        <div class="col m"><label class="lbl" for="omr">OMR minutes</label><input id="omr" class="field mono" type="number" min="0" max="60" value="${t?.omr_min ?? 10}"></div>
+        <p class="muted col x2" id="winTxt"></p>
+      </div>
+      <p class="muted">She can download it 15 minutes before it opens. OMR minutes come out of the test time at the end: answers lock and she copies them to a paper OMR sheet (0 turns it off). Every attempt is kept with its score and times.</p>
       <div class="row">
         <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Record leaving fullscreen or the app</label>
         <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
@@ -545,9 +554,17 @@ async function vTestForm(t) {
   const count = () => SUBJECTS.forEach((s) => ($(`#n-${s}`).textContent = view.querySelectorAll(`.q[data-s=${s}]:checked`).length));
   const filter = () => { const f = $('#qf').value.toLowerCase(), h = $('#hide').checked;
     view.querySelectorAll('.pick label').forEach((l) => (l.hidden = (f && !l.dataset.t.includes(f)) || (h && l.dataset.u !== '0' && !l.querySelector('input').checked))); };
-  view.onchange = () => { count(); filter(); };
-  view.oninput = (e) => { if (e.target.id === 'qf') filter(); };
-  count();
+  // Plain-language window: when it opens, the latest start that still finishes in time, when it closes
+  const winTxt = () => {
+    const s = Date.parse($('#start').value), h = Number($('#win').value), d = Number($('#dur').value) || 120, o = Number($('#omr').value) || 0;
+    const parts = [o ? `${d - o} min questions + ${o} min OMR.` : `${d} min, no OMR time.`];
+    if (h && s) parts.push(h * 60 < d ? `The window must be at least ${d} min.` : `Start by ${when(s + h * 36e5 - d * 6e4)}, closes ${when(s + h * 36e5)}.`);
+    else parts.push('She can start any time after it opens.');
+    $('#winTxt').textContent = parts.join(' ');
+  };
+  view.onchange = () => { count(); filter(); winTxt(); };
+  view.oninput = (e) => { if (e.target.id === 'qf') filter(); else winTxt(); };
+  count(); winTxt();
   if (attempts) view.querySelectorAll('.q, #neg, #fill').forEach((x) => (x.disabled = true));
   $('#fill').onclick = () => {
     const short = [];
@@ -567,9 +584,12 @@ async function vTestForm(t) {
     if (!$('#title').value.trim() || !$('#start').value) return (msg.textContent = 'Title and opening time are needed.');
     const strategies = [...view.querySelectorAll('.st:checked')].map((x) => x.value);
     if (!strategies.length) return (msg.textContent = 'Allow at least one strategy.');
+    const start = new Date($('#start').value), dur = Number($('#dur').value) || 120, win = Number($('#win').value) || 0, omr = Math.round(Number($('#omr').value) || 0);
+    if (win && win * 60 < dur) return (msg.textContent = `The window must be at least as long as the test (${dur} min).`);
+    if (omr < 0 || omr > Math.min(60, dur / 2)) return (msg.textContent = 'OMR minutes must be between 0 and half the test time (60 at most).');
     $('#save').disabled = true;
-    const row = { title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value) || 120, neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies };
-    if (hasAtt) row.max_attempts = Math.min(10, Math.max(1, Number($('#att').value) || 3));
+    const row = { title: $('#title').value.trim(), start_at: start.toISOString(), duration_min: dur, neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies,
+      max_attempts: Math.min(10, Math.max(1, Number($('#att').value) || 3)), omr_min: omr, end_at: win ? new Date(+start + win * 36e5).toISOString() : null };
     const r = t ? await sb.from('tests').update(row).eq('id', t.id).select('id').single() : await sb.from('tests').insert(row).select('id').single();
     if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
     if (!attempts) {
