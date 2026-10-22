@@ -26,7 +26,7 @@
   </div>
 </div>
 <script type="module">
-import { sb, currentUser, logout } from './shared.js';
+import { sb, rpc, currentUser, logout } from './shared.js';
 import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
 const $ = (s) => document.querySelector(s);
@@ -437,7 +437,7 @@ async function vTests() {
         <td>${statusChip(t)}</td><td class="mono">${t.attempts.filter((a) => a.submitted_at).length || '–'}${t.attempts.some((a) => !a.submitted_at) ? ' <span class="chip">in progress</span>' : ''}</td>
         <td class="actions"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm ${t.published ? '' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
-        <button class="btn sm danger" data-d="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No tests yet. Import a paper to create one.</td></tr>'}
+        <button class="btn sm danger" data-d="${t.id}" ${t.attempts.length ? 'disabled title="She has attempts on this test. Unpublish it instead; her results stay."' : ''}>Delete</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No tests yet. Import a paper to create one.</td></tr>'}
     </table></div></div>`;
   view.onclick = async (e) => {
     const b = e.target.closest('[data-v],[data-e],[data-p],[data-d],#new'); if (!b) return;
@@ -458,8 +458,8 @@ async function vTests() {
       toast(t.published ? 'Unpublished' : `Published. She can open it from ${when(Date.parse(t.start_at) - 15 * 60000)}.`);
       vTests();
     } else if (b.dataset.d) {
-      const done = t.attempts.length;
-      if (!confirm(`Delete "${t.title}"${done ? ` and her ${plural(done, 'attempt')} at it` : ''}? Questions stay in the bank. This cannot be undone.`)) return;
+      if (t.attempts.length) return toast('She has attempts on this test. Unpublish it instead; her results stay.');
+      if (!confirm(`Delete "${t.title}"? Questions stay in the bank.`)) return;
       const { error } = await sb.from('tests').delete().eq('id', t.id);
       if (error) return toast(error.message);
       toast('Test deleted'); vTests();
@@ -509,6 +509,7 @@ async function vTestForm(t) {
     fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
   ]);
+  const hasAtt = !(await sb.from('tests').select('max_attempts').limit(1)).error; // ponytail: false until db/ SQL is applied
   if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
   const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
@@ -520,8 +521,9 @@ async function vTestForm(t) {
         <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${t ? toLocal(t.start_at) : soon()}"></div>
         <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="${t?.duration_min ?? 120}"></div>
         <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
+        ${hasAtt ? `<div class="col s"><label class="lbl" for="att">Attempts</label><input id="att" class="field mono" type="number" min="1" max="10" value="${t?.max_attempts ?? 3}"></div>` : ''}
       </div>
-      <p class="muted">She can download it 15 minutes before it opens and start any time after. One attempt per test; reset it from Results if she needs to retake.</p>
+      <p class="muted">She can download it 15 minutes before it opens and start any time after. Every attempt is kept with its score and times.</p>
       <div class="row">
         <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Record leaving fullscreen or the app</label>
         <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
@@ -567,6 +569,7 @@ async function vTestForm(t) {
     if (!strategies.length) return (msg.textContent = 'Allow at least one strategy.');
     $('#save').disabled = true;
     const row = { title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value) || 120, neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies };
+    if (hasAtt) row.max_attempts = Math.min(10, Math.max(1, Number($('#att').value) || 3));
     const r = t ? await sb.from('tests').update(row).eq('id', t.id).select('id').single() : await sb.from('tests').insert(row).select('id').single();
     if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
     if (!attempts) {
@@ -601,39 +604,41 @@ async function studentData(sid) {
 async function vResults(sid) {
   const d = await studentData(sid);
   if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
+  const { data: ts } = await sb.from('tests').select('*');
+  const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
   const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
   view.innerHTML = `<div class="head"><h1>Results</h1><span class="grow"></span>${d.picker}</div>
     <div class="tray"><span class="lbl">${plural(d.attempts.length, 'attempt')}</span><div class="card list">${[...d.attempts].reverse().map((a) => {
-      const subs = subjectStats(d.answers.filter((r) => r.attempt_id === a.id), [a]).filter((s) => s.total);
+      const rows = d.answers.filter((r) => r.attempt_id === a.id), neg = +(testOf(a.test_id).neg_marks ?? 1);
+      const subs = subjectStats(rows, [a]).filter((s) => s.total).map((s) => ({ ...s, score: rows.filter((r) => r.subject === s.subject && r.chosen === r.correct).reduce((n, r) => n + r.marks, 0) - s.wrong * neg, max: rows.filter((r) => r.subject === s.subject).reduce((n, r) => n + r.marks, 0) }));
       const active = Object.values(a.times || {}).reduce((x, y) => x + y, 0);
-      return `<details class="rv"><summary><b>${esc(a.title)}</b><span class="mono">${a.score} / ${a.max} · ${pct(a)}%</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span>
+      const prev = d.attempts.find((x) => x.test_id === a.test_id && x.attempt_no === a.attempt_no - 1);
+      return `<details class="rv"><summary><b>${esc(a.title)}</b>${a.attempt_no ? `<span class="chip">Attempt ${a.attempt_no}</span>` : ''}<span class="mono">${a.score} / ${a.max} · ${pct(a)}%${prev ? ` (${a.score - prev.score >= 0 ? '+' : ''}${a.score - prev.score} vs attempt ${prev.attempt_no})` : ''}</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span>
         <span class="chip ${(a.flags || []).length ? 'bad' : 'ok'}">Flags: ${esc(flagLine(a))}</span></summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
-        <table><tr><th>Subject</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Per question</th></tr>
-        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
+        <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
+        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
         ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}
-        <div class="row"><button class="btn sm" data-sheet="${a.test_id}">Answer sheet</button><button class="btn sm danger" data-reset="${a.id}">Reset so she can retake</button></div></div></details>`;
+        <div class="row"><button class="btn sm" data-sheet="${a.test_id}" data-att="${a.id}">Answer sheet</button></div></div></details>`;
     }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></div>`;
   $('#stu')?.addEventListener('change', (e) => vResults(e.target.value));
   view.onclick = async (e) => {
-    const b = e.target.closest('[data-sheet],[data-reset]'); if (!b) return;
-    if (b.dataset.sheet) return go('sheet', { test: b.dataset.sheet, sid: d.sid });
-    const a = d.attempts.find((x) => x.id === b.dataset.reset);
-    if (!confirm(`Delete her attempt at "${a.title}" (score ${a.score})? She can then take it again. This cannot be undone.`)) return;
-    const { error, count } = await sb.from('attempts').delete({ count: 'exact' }).eq('id', a.id);
-    if (error || !count) return toast(error?.message ?? 'Not allowed yet: the database update for resets has not been applied.');
-    toast('Attempt reset'); vResults(d.sid);
+    const b = e.target.closest('[data-sheet]'); if (b) go('sheet', { test: b.dataset.sheet, sid: d.sid, attempt: b.dataset.att });
   };
 }
 
 // Her answers for one test, question by question
 async function vSheet(arg) {
   if (!arg) return go('results');
-  const r = await sb.rpc('get_result', { p_test: arg.test, p_student: arg.sid });
+  view.onclick = (e) => { const b = e.target.closest('[data-att]'); if (b) vSheet({ ...arg, attempt: b.dataset.att }); };
+  const r = await rpc('get_result', { p_test: arg.test, p_student: arg.sid, p_attempt: arg.attempt });
   if (r.error) return (view.innerHTML = `<p class="err">${esc(r.error.message)}</p>`);
-  const { attempt: a, test, questions: qs } = r.data, times = a.times || {}, marked = a.marked || [];
+  const { attempt: a, test, questions: qs, attempts = [] } = r.data, times = a.times || {}, marked = a.marked || [];
   const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
-  view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
+  const slow = [...qs].sort((x, y) => (times[y.id] || 0) - (times[x.id] || 0)).slice(0, 5).filter((q) => times[q.id]);
+  view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
+    ${attempts.length > 1 ? `<div class="row tight">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" data-att="${x.id}">Attempt ${x.attempt_no} <span class="mono">${x.score}</span></button>`).join('')}</div>` : ''}
+    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qs.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span><span class="chip ${lbl[verdictOf(a.answers[q.id], q.correct)][0]}">${lbl[verdictOf(a.answers[q.id], q.correct)][1]}</span><span class="mono">${mmss(times[q.id])}</span></div>`).join('')}</div></div>` : ''}
     ${SUBJECTS.filter((s) => qs.some((q) => q.subject === s)).map((s) => `<div class="tray"><span class="lbl">${cap(s)}</span><div class="card list">${qs.filter((q) => q.subject === s).map((q, i) => {
       const ch = a.answers[q.id], v = verdictOf(ch, q.correct);
       return `<details class="rv"><summary><span class="chip ${lbl[v][0]}">${lbl[v][1]}</span><span class="mono muted">Q${i + 1}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted">${mmss(times[q.id])}${marked.includes(q.id) ? ' · marked' : ''}</span></summary>

@@ -16,7 +16,7 @@
 <dialog id="dlg"><form method="dialog" class="stack"><div id="dlgText"></div>
   <div class="row"><button class="btn" value="no">Go back</button><button class="btn dark" value="yes" id="dlgOk">OK</button></div></form></dialog>
 <script type="module">
-import { sb, currentUser, logout } from './shared.js';
+import { sb, rpc, currentUser, logout } from './shared.js';
 import { SUBJECTS, STRATEGIES, STATE, KIND, qStatus, stateCounts, attemptKind, guessValue, stratName, esc, fmt, cap, when, stat, phaseOf, pct, verdictOf, chapterStats, strategyStats, subjectStats, mistakes, trendSvg, mmss, plural } from './util.js';
 
 const $ = (s) => document.querySelector(s);
@@ -53,22 +53,21 @@ async function home() {
   const me = await currentUser();
   if (!me) { location.href = 'index.html'; return; }
   const [t, a] = await Promise.all([
-    sb.from('tests').select('id,title,start_at,duration_min').eq('published', true).order('start_at'),
-    sb.from('attempts').select('test_id,submitted_at,score'),
+    sb.from('tests').select('*').eq('published', true).order('start_at'),
+    sb.from('attempts').select('*').not('submitted_at', 'is', null).order('submitted_at'),
   ]);
   const saved = Object.keys(localStorage).filter((k) => k.startsWith('paper.')).map((k) => read(k).test);
   const tests = t.error ? saved : t.data;
-  const done = new Map((a.data ?? []).filter((x) => x.submitted_at).map((x) => [x.test_id, x]));
+  const doneOf = (id) => (a.data ?? []).filter((x) => x.test_id === id);
   app.innerHTML = `<div class="frame">${nav('home')}
     <div class="page"><h1>Your tests</h1><div class="tray"><span class="lbl">${plural(tests.length, 'test')}</span>
     <div class="card list">${tests.map((x) => {
-      const d = done.get(x.id), start = Date.parse(x.start_at), open = Date.now() >= start - 15 * 60000;
-      const btn = d ? `<button class="btn sm" data-a="result" data-id="${x.id}">Result</button>`
-        : open || read('paper.' + x.id) ? `<button class="btn sm dark" data-a="open" data-id="${x.id}">Open</button>`
+      const d = doneOf(x.id), start = Date.parse(x.start_at), open = Date.now() >= start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
+      const go = !left ? '' : open || read('paper.' + x.id) ? `<button class="btn sm dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Open'}</button>`
         : `<span class="muted">Opens ${when(start - 15 * 60000)}</span>`;
       return `<div class="li"><div class="col"><b>${esc(x.title)}</b>
-        <span class="muted mono">${when(start)} · ${x.duration_min} min</span></div>
-        ${d ? `<span class="chip ok">Score ${d.score}</span>` : ''}${btn}</div>`;
+        <span class="muted mono">${when(start)} · ${x.duration_min} min${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
+        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last` : 'Score'} ${d.at(-1).score}</span><button class="btn sm" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
     }).join('') || '<p class="muted">No tests yet.</p>'}</div></div></div></div>`;
 }
 
@@ -77,7 +76,7 @@ app.addEventListener('click', async (e) => {
   const a = b.dataset.a;
   if (a === 'out') logout();
   else if (a === 'open') openTest(b.dataset.id);
-  else if (a === 'result') { const r = await sb.rpc('get_result', { p_test: b.dataset.id }); r.data ? showResult(r.data) : toast(r.error?.message ?? 'Could not load'); }
+  else if (a === 'result' || a === 'att') { const r = await rpc('get_result', { p_test: b.dataset.id, ...(b.dataset.att ? { p_attempt: b.dataset.att } : {}) }); r.data ? showResult(r.data) : toast(r.error?.message ?? 'Could not load'); }
   else if (a === 'home') home();
   else if (a === 'progress') progress();
   else if (a === 'notebook') notebook();
@@ -126,7 +125,7 @@ function startScreen(paper) {
           <div>The paper submits itself when the time ends. If the tablet restarts, open the app again and the test continues.</div></div></div></div>
       <div class="stack"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
         <div class="t">${esc(t.title)}</div>
-        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min<br>Marking +${marks} / −${t.neg_marks}</div>
+        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}</div>
         <div class="cd" id="cd" aria-live="polite"></div></div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
           <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
@@ -139,7 +138,9 @@ function startScreen(paper) {
   const tickStart = () => {
     const w = wait(); const cd = $('#cd'), go = $('#go');
     if (cd) cd.textContent = w > 0 ? 'Opens in ' + hms(w) : 'Ready';
-    if (go) go.disabled = w > 0 || !pinned || !paper.questions.length;
+    const spent = t.max_attempts && (t.attempts_used ?? 0) >= t.max_attempts;
+    if (cd && spent) cd.textContent = 'All attempts used';
+    if (go) go.disabled = w > 0 || !pinned || !paper.questions.length || spent;
   };
   app.onchange = (e) => { if (e.target.id === 'pin') { pinned = e.target.checked; tickStart(); } };
   startScreen.handle = async (a, d) => {
@@ -155,13 +156,14 @@ async function begin(paper, strategy, order) {
   try { await document.documentElement.requestFullscreen(); } catch { /* installed app is already fullscreen */ }
   clearInterval(startTimer);
   const t = paper.test;
-  let startedAt = Date.now() + paper.offset;
-  const r = await sb.rpc('start_attempt', { p_test: t.id, p_strategy: strategy });
+  let startedAt = Date.now() + paper.offset, attemptId = crypto.randomUUID(); // id made here so an offline start uploads as the same attempt
+  const r = await rpc('start_attempt', { p_test: t.id, p_strategy: strategy, p_id: attemptId });
   if (r.error?.code) { toast(r.error.message); return startScreen(paper); } // a server rule said no
-  if (r.data?.submitted_at) { const x = await sb.rpc('get_result', { p_test: t.id }); return x.data ? showResult(x.data) : home(); }
+  if (r.data?.submitted_at) { const x = await rpc('get_result', { p_test: t.id }); return x.data ? showResult(x.data) : home(); }
+  if (r.data?.id) attemptId = r.data.id; // an unfinished attempt on the server continues
   if (r.data?.started_at) startedAt = Date.parse(r.data.started_at); // offline start falls back to the tablet clock
   const first = (s) => paper.questions.find((q) => q.subject === s);
-  S = { testId: t.id, title: t.title, strategy, order, startedAt, offset: paper.offset, durationMs: t.duration_min * 60000, neg: t.neg_marks, cheat: t.cheat_flags,
+  S = { testId: t.id, attemptId, title: t.title, strategy, order, startedAt, offset: paper.offset, durationMs: t.duration_min * 60000, neg: t.neg_marks, cheat: t.cheat_flags,
         qs: paper.questions, answers: {}, marked: [], visited: [], times: {}, flags: [], cur: first(order[0]).id, subjIdx: 0, alerts: [], lastIdx: -1, pending: false };
   S.visited.push(S.cur); persist();
   app.onchange = null;
@@ -338,8 +340,9 @@ async function upload() {
   if (S.busy) return;
   S.busy = true; render();
   // ponytail: the attempt row is created here too, so an offline start still works; its started_at is then the upload time
-  await sb.rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy });
-  const r = await sb.rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags });
+  const st = await rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy, p_id: S.attemptId });
+  if (st.data?.id) S.attemptId = st.data.id;
+  const r = await rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags, p_id: S.attemptId });
   S.busy = false;
   if (r.error) { S.err = r.error.message; persist(); return render(); }
   localStorage.removeItem(EXAM); localStorage.removeItem('paper.' + S.testId);
@@ -350,7 +353,7 @@ window.addEventListener('online', () => { if (S?.pending) upload(); });
 /* ================= Result ================= */
 const TARGET = 120; // seconds per question: 120 min for 60 questions
 let RQ = []; // this result's questions, for "Practise mistakes"
-function showResult({ attempt: a, test, questions: qs }) {
+function showResult({ attempt: a, test, questions: qs, attempts = [] }) {
   document.body.classList.remove('exam', 'pal-open');
   $('#toast').classList.remove('on');
   const neg = test?.neg_marks ?? 1, ans = a.answers, times = a.times || {}, marked = a.marked || [];
@@ -367,9 +370,13 @@ function showResult({ attempt: a, test, questions: qs }) {
   qrows.forEach((q) => { q.kind = attemptKind(q.chosen, q.correct, q.secs, TARGET); kinds[q.kind] = (kinds[q.kind] || 0) + 1; });
   RQ = qrows.filter((q) => verdict(q) !== 'C');
   const used = Object.values(times).reduce((x, y) => x + y, 0);
+  const slow = [...qrows].sort((x, y) => y.secs - x.secs).slice(0, 5).filter((q) => q.secs);
   const FILTERS = [['all', 'All', qrows.length], ['W', 'Wrong', a.wrong], ['S', 'Skipped', a.skipped], ['C', 'Correct', a.correct], ['M', 'Marked', qrows.filter((q) => marked.includes(q.id)).length]];
+  const left = (test?.max_attempts ?? 1) - attempts.length, prevA = attempts.find((x) => x.attempt_no === a.attempt_no - 1);
   app.innerHTML = `<div class="frame"><div class="top"><span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${stratName(a.strategy)}</span><span class="grow"></span><button class="btn sm" data-a="progress">Progress</button><button class="btn sm" data-a="home">Back to tests</button></div>
-    <div class="page"><div class="hero"><div class="stat"><span class="lbl">Score</span><span class="v">${a.score} <span class="u">/ ${total}</span></span><span class="delta" id="delta">${mine}%</span></div>
+    <div class="page">${attempts.length > 1 || left > 0 ? `<div class="row tight" role="group" aria-label="Attempts">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" aria-pressed="${x.id === a.id}" data-a="att" data-id="${test.id}" data-att="${x.id}">Attempt ${x.attempt_no} <span class="mono">${x.score}</span></button>`).join('')}
+      <span class="grow"></span>${left > 0 && test?.id ? `<button class="btn sm dark" data-a="open" data-id="${test.id}">Retake · ${plural(left, 'attempt')} left</button>` : ''}</div>` : ''}
+    <div class="hero"><div class="stat"><span class="lbl">Score</span><span class="v">${a.score} <span class="u">/ ${total}</span></span><span class="delta" id="delta">${mine}%</span></div>
       <div class="stats">${stat('✓ Correct', a.correct, '', '')}${stat('✗ Wrong', a.wrong, `−${a.wrong * neg} marks`, '')}${stat('– Skipped', a.skipped, '', '')}${stat('Accuracy', tried ? Math.round((a.correct / tried) * 100) + '%' : '–', `${tried} of ${qs.length} tried`, '')}${stat('Time used', mmss(used).replace(/:\d+$/, '') + ' min', '', '')}</div></div>
     <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.subject.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q, i) => `<i class="${verdict(q)}" title="Q${i + 1} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
       <div class="row muted"><span class="sqs"><i class="C"></i></span>Correct<span class="sqs"><i class="W"></i></span>Wrong<span class="sqs"><i></i></span>Skipped</div></div></div>
@@ -377,10 +384,16 @@ function showResult({ attempt: a, test, questions: qs }) {
       ${rows.map((r) => `<tr><td>${cap(r.subject)}</td><td class="mono">${r.score} / ${r.max}</td><td class="mono">${r.acc == null ? '–' : r.acc + '%'}</td><td class="mono">${mmss(r.secs)}</td><td class="mono">${mmss(r.perQ)}</td></tr>`).join('')}</table></div></div>
     <div class="tray"><span class="lbl">How you used time · target 2 min a question</span><div class="card list">${Object.entries(KIND).filter(([k]) => kinds[k]).map(([k, n]) => `<div class="li"><span class="kind ${k}" aria-hidden="true"></span><span class="grow">${n}</span><span class="num-r">${kinds[k]}</span></div>`).join('')}
       ${kinds.wrong_fast ? `<p class="muted li">${plural(kinds.wrong_fast, 'question')} answered wrong in under 36 s. Slow down on these: each cost ${4 + +neg} marks against a correct answer.</p>` : ''}</div></div></div>
+    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qrows.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span>${verdictChip(verdict(q))}<span class="mono">${mmss(q.secs)}</span></div>`).join('')}</div></div>` : ''}
     ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise from this test</span><div class="card list">${weakHere.map(chapterRow).join('')}</div></div>` : ''}
     <div class="tray"><div class="row tray-head"><span class="lbl">Review solutions</span><span class="grow"></span>${RQ.length ? `<button class="btn sm dark" data-a="rpractice">Practise ${RQ.length} wrong and skipped</button>` : ''}</div>
       <div class="row tight filt" role="group" aria-label="Show">${FILTERS.map(([k, n, c], i) => `<button class="tab ${i ? '' : 'on'}" data-a="rf" data-f="${k}" aria-pressed="${!i}">${n} <span class="mono">${c}</span></button>`).join('')}</div>
       <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">${cap(q.subject.slice(0, 3))} ${q.position}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div></div></div>`;
+  if (prevA) { // change vs her previous attempt at this paper
+    const d = mine - Math.round((prevA.score / total) * 100), el = $('#delta');
+    el.textContent = `${mine}% · ${d >= 0 ? '+' : '−'}${Math.abs(d)} vs attempt ${prevA.attempt_no}`; el.classList.add(d >= 0 ? 'up' : 'down');
+    return;
+  }
   // change vs the previous test (needs internet; the result shows fine without it)
   sb.rpc('get_progress').then(({ data }) => {
     const at = data?.attempts ?? [], i = at.findIndex((x) => x.id === a.id), prev = i > 0 ? at[i - 1] : null, el = $('#delta');
