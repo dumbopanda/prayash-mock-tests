@@ -13,14 +13,7 @@ export async function currentUser() {
   return { id: session.user.id, email: session.user.email, ...p };
 }
 
-// ponytail: falls back to the old signatures (no p_id / p_attempt) until db/2026-10-22_attempts_history.sql
-// is applied in Supabase; remove the fallback after that.
-export async function rpc(name, args = {}) {
-  const r = await sb.rpc(name, args);
-  if (r.error?.code !== 'PGRST202' || !('p_id' in args || 'p_attempt' in args)) return r;
-  const { p_id, p_attempt, ...rest } = args;
-  return sb.rpc(name, rest);
-}
+export const rpc = (name, args = {}) => sb.rpc(name, args);
 
 export async function logout() {
   await sb.auth.signOut();
