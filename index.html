@@ -19,12 +19,13 @@
     <div class="err" id="msg" role="alert"></div>
     <button class="btn dark" id="go">Sign in</button>
     <button class="btn" type="button" id="swap">Create account</button>
+    <button class="btn" type="button" id="forgot">Forgot password?</button>
   </div>
 </form>
 <script type="module">
 import { sb, currentUser } from './shared.js';
 
-let signup = false;
+let signup = false, recovery = /type=recovery/.test(location.hash);
 const $ = (id) => document.getElementById(id);
 
 async function route() {
@@ -38,15 +39,32 @@ $('show').onchange = (e) => { $('p').type = e.target.checked ? 'text' : 'passwor
 
 $('swap').onclick = () => {
   signup = !signup;
-  $('mode').textContent = signup ? 'Create account' : 'Sign in';
-  $('go').textContent = signup ? 'Create account' : 'Sign in';
+  setMode(signup ? 'Create account' : 'Sign in', signup ? 'Create account' : 'Sign in');
   $('swap').textContent = signup ? 'I have an account' : 'Create account';
   $('msg').textContent = '';
 };
 
+const setMode = (t, b) => { $('mode').textContent = t; $('go').textContent = b; };
+$('forgot').onclick = async () => {
+  const email = $('e').value.trim();
+  if (!email) { $('msg').textContent = 'Type your email first.'; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/index.html' });
+  $('msg').textContent = error ? error.message : 'If this email has an account, a reset link is on its way.';
+};
+if (recovery) {
+  setMode('New password', 'Save password');
+  $('e').closest('.col').hidden = $('swap').hidden = $('forgot').hidden = true;
+  $('e').required = false; $('p').autocomplete = 'new-password';
+}
+
 $('f').onsubmit = async (ev) => {
   ev.preventDefault();
   $('msg').textContent = '';
+  if (recovery) {
+    const { error } = await sb.auth.updateUser({ password: $('p').value });
+    if (error) { $('msg').textContent = error.message; return; }
+    history.replaceState(null, '', 'index.html'); recovery = false; route(); return;
+  }
   const creds = { email: $('e').value.trim(), password: $('p').value };
   const { error } = signup ? await sb.auth.signUp(creds) : await sb.auth.signInWithPassword(creds);
   if (error) { $('msg').textContent = error.message; return; }
@@ -55,7 +73,7 @@ $('f').onsubmit = async (ev) => {
   route();
 };
 
-route();
+if (!recovery) route();
 </script>
 </body>
 </html>
