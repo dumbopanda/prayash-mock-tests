@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
+import { guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -74,5 +74,23 @@ assert.match(trendSvg([{ label: 'T1', value: 50 }]), /50%/);
 assert.equal((barsSvg([0, 3, 1], ['1', '2', '3']).match(/<rect/g) || []).length, 3); assert.match(barsSvg([0, 3], ['a', 'b']), />3</);
 assert.equal(mmss(0), '0:00'); assert.equal(mmss(605), '10:05'); assert.equal(mmss(59.6), '1:00');
 assert.equal(plural(1, 'switch', 'switches'), '1 switch'); assert.equal(plural(0, 'exit'), '0 exits');
-console.log('util ok');
 { const r = readQuestions(CSV_HEADER + '\nphy,c,q,a,b,c,d,B,s,4,fig.png\n'); assert.equal(r.ok[0].image, 'fig.png'); }
+
+// formatting: whole numbers in powers and subscripts, arrows
+assert.equal(fmt('6.02 x 10^23'), '6.02 x 10<sup>23</sup>');
+assert.equal(fmt('C_12H_22O_11'), 'C<sub>12</sub>H<sub>22</sub>O<sub>11</sub>');
+assert.equal(fmt('A + B -> C'), 'A + B → C'); assert.equal(fmt('N_2 + 3H_2 <=> 2NH_3'), 'N<sub>2</sub> + 3H<sub>2</sub> ⇌ 2NH<sub>3</sub>');
+assert.equal(fmt('x^-1'), 'x<sup>-1</sup>');
+// import warnings
+{ const r = readQuestions(CSV_HEADER + '\nphy,,q,a,A,c,d,B,s,4,\n'); assert.equal(r.ok.length, 1); assert.equal(r.warnings.length, 2); assert.equal(r.ok[0].row, 2); }
+// palette: answered and marked is its own state
+assert.equal(qStatus('a', { a: 0 }, ['a'], []), 'AM'); assert.equal(qStatus('a', {}, ['a'], ['a']), 'M');
+assert.equal(qStatus('a', { a: 2 }, [], ['a']), 'A'); assert.equal(qStatus('a', {}, [], ['a']), 'S'); assert.equal(qStatus('a', {}, [], []), 'V');
+assert.equal(qStatus('a', { a: 0 }, [], []), 'A'); // option 0 counts as answered
+const sc = stateCounts([{ id: 'a', subject: 'physics' }, { id: 'b', subject: 'physics' }, { id: 'c', subject: 'biology' }], { a: 1 }, ['a'], ['b']);
+assert.deepEqual(sc.physics, { A: 0, AM: 1, M: 0, S: 1, V: 0 }); assert.equal(sc.biology.V, 1);
+assert.equal(attemptKind(1, 1, 60, 120), 'correct'); assert.equal(attemptKind(1, 1, 200, 120), 'correct_slow');
+assert.equal(attemptKind(0, 1, 20, 120), 'wrong_fast'); assert.equal(attemptKind(0, 1, 100, 120), 'wrong'); assert.equal(attemptKind(0, 1, 300, 120), 'wrong_slow');
+assert.equal(attemptKind(null, 1, 5, 120), 'skipped'); assert.equal(attemptKind(null, 1, 150, 120), 'skipped_late');
+assert.equal(guessValue(4, 4, 1), 0.25); assert.equal(guessValue(3, 4, 1), 0.67); assert.equal(guessValue(4, 1, 1), -0.5);
+console.log('util ok');

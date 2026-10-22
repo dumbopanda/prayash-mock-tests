@@ -15,7 +15,7 @@
   <div class="card stack">
     <h1>Mock Tests</h1>
     <div class="col"><label class="lbl" for="e">Email</label><input id="e" class="field" type="email" autocomplete="username" required></div>
-    <div class="col"><label class="lbl" for="p">Password</label><input id="p" class="field" type="password" minlength="6" autocomplete="current-password" required></div>
+    <div class="col"><label class="lbl" for="p">Password</label><input id="p" class="field" type="password" minlength="6" autocomplete="current-password" required><label class="opt sm-text"><input type="checkbox" id="show"> Show password</label></div>
     <div class="err" id="msg" role="alert"></div>
     <button class="btn dark" id="go">Sign in</button>
     <button class="btn" type="button" id="swap">Create account</button>
@@ -33,6 +33,8 @@ async function route() {
   if (u.role === 'admin') location.href = 'admin.html';
   else location.href = 'student.html';
 }
+
+$('show').onchange = (e) => { $('p').type = e.target.checked ? 'text' : 'password'; };
 
 $('swap').onclick = () => {
   signup = !signup;

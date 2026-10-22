@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="toast" role="status" aria-live="polite"></div>
 <div class="adm" id="adm">
   <aside class="side" id="side"><div class="brand"><span class="logo">M</span><span class="t">Mock Tests</span><span class="chip t">Admin</span></div>
     <nav id="nav" aria-label="Admin"></nav>
@@ -26,13 +27,28 @@
 </div>
 <script type="module">
 import { sb, currentUser, logout } from './shared.js';
-import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
+import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view');
 const IMG = 'question-images';
 const imgPath = (url) => url?.split(`/${IMG}/`)[1]; // storage path from its public URL
 const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+// Next 5-minute mark, for new tests
+const soon = () => { const d = new Date(Math.ceil(Date.now() / 3e5) * 3e5); return toLocal(d.toISOString()); };
+// Supabase returns at most 1000 rows a request, so page through. build() makes a fresh query each time.
+async function fetchAll(build) {
+  const out = [];
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await build().range(i, i + 999);
+    if (error) return { data: null, error };
+    out.push(...data);
+    if (data.length < 1000) return { data: out, error: null };
+  }
+}
+// Same question text in the same subject, ignoring case and spaces
+const dupKey = (subject, body) => subject + '|' + body.toLowerCase().replace(/\s+/g, ' ').trim();
+const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 5000); };
 
 const me = await currentUser();
 if (!me) { location.href = 'index.html'; await new Promise(() => {}); }
@@ -70,15 +86,18 @@ $('#nav').innerHTML = NAV.map(([g, items]) => `<div class="nav-g"><span class="l
   `<a class="nav-i" href="#${v}" data-v="${v}" title="${n}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg><span class="t">${n}</span></a>`).join('')}</div>`).join('');
 
 // Routing by URL hash, so reload and the back button stay on the same page
-const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, results: vResults, report: vReport };
+const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, preview: vPreview, results: vResults, sheet: vSheet, report: vReport };
+const SUB = { testform: ['tests', 'Test'], preview: ['tests', 'Preview'], sheet: ['results', 'Answer sheet'] }; // pages not in the sidebar: [parent, name]
 let ARG;
 function go(v, arg) { ARG = arg; if (location.hash.slice(1) === v) render(); else location.hash = v; }
 function render() {
   const v = views[location.hash.slice(1)] ? location.hash.slice(1) : 'dash', arg = ARG; ARG = undefined;
-  view.oninput = view.onchange = null;
-  document.querySelectorAll('.nav-i').forEach((a) => { const on = a.dataset.v === v || (v === 'testform' && a.dataset.v === 'tests'); a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
-  const [g, n] = v === 'testform' ? ['Tests', 'Test'] : (() => { for (const [g, items] of NAV) { const i = items.find((x) => x[0] === v); if (i) return [g, i[1]]; } })();
-  $('#crumb').innerHTML = `<span>${g}</span><span>/</span><b>${n}</b>`;
+  view.oninput = view.onchange = view.onclick = null;
+  const nv = SUB[v]?.[0] ?? v;
+  document.querySelectorAll('.nav-i').forEach((a) => { const on = a.dataset.v === nv; a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
+  let [g, n] = (() => { for (const [g, items] of NAV) { const i = items.find((x) => x[0] === nv); if (i) return [g, i[1]]; } })();
+  if (SUB[v]) n = `<a class="link" href="#${nv}">${n}</a><span>/</span><b>${SUB[v][1]}</b>`; else n = `<b>${n}</b>`;
+  $('#crumb').innerHTML = `<span>${g}</span><span>/</span>${n}`;
   drawer(false);
   scrollTo(0, 0);
   views[v](arg);
@@ -87,14 +106,14 @@ addEventListener('hashchange', render);
 
 /* ---------- Dashboard ---------- */
 const DAY = 864e5;
-// Draft / Upcoming / Live / Finished
-const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : n < s + t.duration_min * 60000 ? 'Live' : 'Finished'; };
+// Draft / Upcoming / Live (in its slot) / Open (slot over; she can still take it)
+const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [qs, ts, st] = await Promise.all([
-    sb.from('questions').select('id,subject,chapter,question_keys(correct)'),
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,question_keys(correct)')),
     sb.from('tests').select('id,title,start_at,duration_min,published,test_questions(questions(subject))').order('start_at', { ascending: false }),
     sb.from('profiles').select('id,name').eq('role', 'student'),
   ]);
@@ -111,7 +130,7 @@ async function vDash() {
   const attemptsOf = (t) => all.filter((a) => a.test_id === t.id).length;
 
   const todo = []; // [text, page]
-  ts.data.filter((t) => statusOf(t) !== 'Finished' && counts(t).some((c) => c !== 15)).forEach((t) => todo.push([`<b>${esc(t.title)}</b> has ${counts(t).join(' / ')} questions (P / C / M / B), not 15 each`, 'tests']));
+  ts.data.filter((t) => !attemptsOf(t) && counts(t).some((c) => c !== 15)).forEach((t) => todo.push([`<b>${esc(t.title)}</b> has ${counts(t).join(' / ')} questions (P / C / M / B), not 15 each`, 'tests']));
   const drafts = ts.data.filter((t) => !t.published).length;
   if (drafts) todo.push([`${plural(drafts, 'test')} still in draft`, 'tests']);
   const keyless = qs.data.filter((q) => !q.question_keys).length;
@@ -138,54 +157,90 @@ async function vDash() {
 }
 
 /* ---------- Question bank ---------- */
-async function vQuestions(filter = '') {
-  let q = sb.from('questions').select('*, question_keys(correct, solution)').order('created_at', { ascending: false });
-  if (filter) q = q.eq('subject', filter);
-  const { data, error } = await q;
+const F = { subject: '', chapter: '', text: '', use: '', limit: 200 }; // bank filters, kept while moving between pages
+async function vQuestions() {
+  view.innerHTML = '<p class="muted">Loading…</p>';
+  const { data, error } = await fetchAll(() => sb.from('questions').select('*, question_keys(correct, solution), test_questions(test_id)').order('created_at', { ascending: false }));
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
+  const sel = new Set();
   view.innerHTML = `
-    <div class="head"><h1>Question bank</h1><span class="grow"></span>
-      <label class="lbl" for="sf">Subject</label>
-      <select id="sf" class="field auto"><option value="">All</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === filter ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
-      <button class="btn dark" id="new">Add question</button></div>
-    <div class="tray"><span class="lbl">${plural(data.length, 'question')}</span>
-      <div class="card tbl"><table>
-        <tr><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th></th></tr>
-        ${data.map((r) => `<tr><td>${cap(r.subject)}</td><td>${esc(r.chapter)}</td>
-          <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}</td>
-          <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '–'}</td>
-          <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>
-          <button class="btn sm danger" data-d="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No questions yet. Add one or import a CSV.</td></tr>'}
-      </table></div></div>`;
-  $('#sf').onchange = (e) => vQuestions(e.target.value);
-  $('#new').onclick = () => go('form');
-  view.querySelectorAll('[data-e]').forEach((b) => (b.onclick = () => go('form', data.find((r) => r.id === b.dataset.e))));
-  view.querySelectorAll('[data-d]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Delete this question?')) return;
-    const { error } = await sb.from('questions').delete().eq('id', b.dataset.d);
-    if (error) return alert(error.code === '23503' ? 'This question is used in a test. Remove it from the test first.' : error.message);
-    const p = imgPath(data.find((r) => r.id === b.dataset.d)?.image_url);
-    if (p) await sb.storage.from(IMG).remove([p]);
-    vQuestions(filter);
-  }));
+    <div class="head"><div class="title"><h1>Question bank</h1><span class="muted">${data.length} in the bank · ${data.filter((r) => !r.test_questions.length).length} not in any test</span></div><span class="grow"></span>
+      <a class="btn" href="#import">Import CSV</a><a class="btn dark" href="#form">Add question</a></div>
+    <div class="row filters">
+      <select id="fs" class="field auto" aria-label="Subject"><option value="">All subjects</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === F.subject ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
+      <select id="fc" class="field auto" aria-label="Chapter"></select>
+      <select id="fu" class="field auto" aria-label="Use"><option value="">Used or not</option><option value="unused" ${F.use === 'unused' ? 'selected' : ''}>Not in any test</option><option value="used" ${F.use === 'used' ? 'selected' : ''}>In a test</option></select>
+      <input id="ft" class="field grow" type="search" placeholder="Search question text" value="${esc(F.text)}" aria-label="Search"></div>
+    <div class="tray"><div class="row tray-head"><span class="ttl" id="cnt"></span><span class="grow"></span>
+      <button class="btn sm" id="selall">Select all shown</button><button class="btn sm danger" id="bulk" disabled>Delete selected</button></div>
+      <div class="card tbl" id="qt"></div></div>`;
+  const shown = () => data.filter((r) => (!F.subject || r.subject === F.subject) && (!F.chapter || r.chapter === F.chapter)
+    && (!F.use || (F.use === 'used') === r.test_questions.length > 0) && (!F.text || r.body.toLowerCase().includes(F.text.toLowerCase())));
+  const chapters = () => { const l = [...new Set(data.filter((r) => !F.subject || r.subject === F.subject).map((r) => r.chapter).filter(Boolean))].sort();
+    if (!l.includes(F.chapter)) F.chapter = '';
+    $('#fc').innerHTML = `<option value="">All chapters</option>${l.map((c) => `<option ${c === F.chapter ? 'selected' : ''}>${esc(c)}</option>`).join('')}`; };
+  const table = () => {
+    const l = shown();
+    $('#cnt').textContent = `${plural(l.length, 'question')} shown${sel.size ? ` · ${sel.size} selected` : ''}`;
+    $('#bulk').disabled = !sel.size;
+    $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th>Tests</th><th></th></tr>
+      ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td><td>${cap(r.subject)}</td><td>${esc(r.chapter) || '<span class="muted">–</span>'}</td>
+        <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}${r.image_url ? ' <span class="chip">Figure</span>' : ''}</td>
+        <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono">${r.test_questions.length || '–'}</td>
+        <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button><button class="btn sm danger" data-d="${r.id}" ${r.test_questions.length ? 'disabled title="Used in a test"' : ''}>Delete</button></td></tr>`).join('')
+        || '<tr><td colspan="7" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
+      ${l.length > F.limit ? `<div class="row li"><span class="muted">Showing ${F.limit} of ${l.length}.</span><button class="btn sm" id="more">Show all</button></div>` : ''}`;
+    $('#more')?.addEventListener('click', () => { F.limit = Infinity; table(); });
+  };
+  const del = async (ids) => {
+    const used = ids.filter((id) => data.find((r) => r.id === id).test_questions.length), free = ids.filter((id) => !used.includes(id));
+    if (!free.length) return toast('These questions are used in tests. Remove them from the tests first.');
+    if (!confirm(`Delete ${plural(free.length, 'question')}?${used.length ? ` ${used.length} used in tests will be kept.` : ''} This cannot be undone.`)) return;
+    for (let i = 0; i < free.length; i += 100) { // short URLs
+      const { error } = await sb.from('questions').delete().in('id', free.slice(i, i + 100));
+      if (error) return toast(error.message);
+    }
+    const paths = free.map((id) => imgPath(data.find((r) => r.id === id).image_url)).filter(Boolean);
+    if (paths.length) await sb.storage.from(IMG).remove(paths);
+    toast(`Deleted ${plural(free.length, 'question')}`);
+    vQuestions();
+  };
+  view.onchange = (e) => {
+    const t = e.target;
+    if (t.id === 'fs') { F.subject = t.value; chapters(); }
+    else if (t.id === 'fc') F.chapter = t.value;
+    else if (t.id === 'fu') F.use = t.value;
+    else if (t.dataset.s) t.checked ? sel.add(t.dataset.s) : sel.delete(t.dataset.s);
+    table();
+  };
+  view.oninput = (e) => { if (e.target.id === 'ft') { F.text = e.target.value; table(); } };
+  view.onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.e) go('form', data.find((r) => r.id === b.dataset.e));
+    else if (b.dataset.d) del([b.dataset.d]);
+    else if (b.id === 'bulk') del([...sel]);
+    else if (b.id === 'selall') { shown().slice(0, F.limit).forEach((r) => sel.add(r.id)); table(); }
+  };
+  chapters(); table();
 }
 
 /* ---------- Add / edit question ---------- */
-function vForm(q) {
+function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Save & add another"
   const k = q?.question_keys ?? {};
   const opts = q?.options ?? ['', '', '', ''];
   view.innerHTML = `
     <div class="head"><h1>${q ? 'Edit' : 'Add'} question</h1></div>
+    ${q?.test_questions?.length ? `<p class="note">Used in ${plural(q.test_questions.length, 'test')}. Edits show in those tests. A changed answer or marks re-grades tests already taken.</p>` : ''}
     <div class="split"><div class="tray"><span class="lbl">Question</span><div class="card stack">
       <div class="row">
-        <div class="col"><label class="lbl" for="subj">Subject</label><select id="subj" class="field">${SUBJECTS.map((s) => `<option value="${s}" ${q?.subject === s ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select></div>
-        <div class="col x2"><label class="lbl" for="chap">Chapter</label><input id="chap" class="field" value="${esc(q?.chapter ?? '')}"></div>
+        <div class="col"><label class="lbl" for="subj">Subject</label><select id="subj" class="field">${SUBJECTS.map((s) => `<option value="${s}" ${(q?.subject ?? keep.subject) === s ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select></div>
+        <div class="col x2"><label class="lbl" for="chap">Chapter</label><input id="chap" class="field" list="chaps" value="${esc(q?.chapter ?? keep.chapter ?? '')}"><datalist id="chaps"></datalist></div>
         <div class="col s"><label class="lbl" for="marks">Marks</label><input id="marks" class="field mono" type="number" min="1" value="${q?.marks ?? 4}"></div>
       </div>
       <div class="col"><label class="lbl" for="body">Question text</label><textarea id="body" class="field" rows="4">${esc(q?.body ?? '')}</textarea>
         <span class="muted">x^2 power · x^{-3} · H_2O subscript · sqrt(10) root</span></div>
       <div class="col"><label class="lbl" for="img">Image (optional)</label><input id="img" type="file" accept="image/*">
-        ${q?.image_url ? `<span class="muted">Current image kept unless you pick a new one.</span>` : ''}</div>
+        ${q?.image_url ? `<span class="row"><img class="thumb" src="${esc(q.image_url)}" alt="Current figure"><label class="opt sm-text"><input type="checkbox" id="noimg"> Remove the current image</label></span><span class="muted">Picking a new file replaces it.</span>` : ''}</div>
       <div class="stack tight"><span class="lbl">Options · mark the correct one</span>
         ${[0, 1, 2, 3].map((i) => `<div class="opt"><input type="radio" name="ans" value="${i}" aria-label="${'ABCD'[i]} is correct" ${k.correct === i ? 'checked' : ''}>
           <span class="key">${'ABCD'[i]}</span><input class="field o" aria-label="Option ${'ABCD'[i]}" value="${esc(opts[i])}"></div>`).join('')}</div>
@@ -199,11 +254,13 @@ function vForm(q) {
     const o = [...view.querySelectorAll('.o')].map((x) => x.value);
     const c = Number(view.querySelector('input[name=ans]:checked')?.value ?? -1);
     $('#pv').innerHTML = `<div class="qblock"><div class="qbody">${fmt($('#body').value) || '<span class="muted">Question appears here</span>'}</div>
-      ${q?.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : ''}
+      ${q?.image_url && !$('#noimg')?.checked ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : ''}
       ${o.map((t, i) => `<div class="optline ${i === c ? 'right' : ''}"><span class="key">${'ABCD'[i]}</span><span class="grow">${fmt(t)}</span>${i === c ? '<span>✓ correct</span>' : ''}</div>`).join('')}</div>`;
   };
   view.oninput = view.onchange = preview;
   preview();
+  // suggest chapter names already in the bank, so spellings stay the same
+  fetchAll(() => sb.from('questions').select('chapter')).then(({ data }) => { const d = $('#chaps'); if (d && data) d.innerHTML = [...new Set(data.map((x) => x.chapter).filter(Boolean))].sort().map((c) => `<option value="${esc(c)}">`).join(''); });
 
   async function save(again) {
     const msg = $('#msg'); msg.textContent = '';
@@ -213,7 +270,7 @@ function vForm(q) {
     if (options.some((x) => !x)) return (msg.textContent = 'Fill all four options.');
     if (correct === undefined) return (msg.textContent = 'Mark the correct option.');
     $('#save').disabled = true;
-    let image_url = q?.image_url ?? null;
+    let image_url = $('#noimg')?.checked ? null : q?.image_url ?? null;
     const file = $('#img').files[0];
     if (file) {
       const path = `${crypto.randomUUID()}.${file.name.split('.').pop().toLowerCase()}`;
@@ -229,149 +286,302 @@ function vForm(q) {
       if (!q) await sb.from('questions').delete().eq('id', r.data.id); // never keep a new question without its answer key
       $('#save').disabled = false; return (msg.textContent = key.error.message);
     }
-    if (file && imgPath(q?.image_url)) await sb.storage.from(IMG).remove([imgPath(q.image_url)]); // replaced image
-    again ? vForm() : go('questions');
+    if ((file || !image_url) && imgPath(q?.image_url)) await sb.storage.from(IMG).remove([imgPath(q.image_url)]); // replaced or removed image
+    toast(q ? 'Question saved' : 'Question added');
+    again ? vForm(null, { subject: row.subject, chapter: row.chapter }) : go('questions');
   }
   $('#save').onclick = () => save(false);
   if (!q) $('#again').onclick = () => save(true);
 }
 
 /* ---------- CSV import ---------- */
+// One paper = one CSV + its pictures. Check runs on every change; nothing is saved until Import.
 function vImport() {
   view.innerHTML = `
-    <div class="head"><h1>Import questions</h1></div>
-    <div class="tray"><span class="lbl">CSV</span><div class="card stack">
-      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. <span class="mono">image</span> is optional: write a picture's file name (e.g. <span class="mono">q12.png</span>) and select the pictures below. In Excel, use Save As → CSV.</p>
-      <div class="row"><input id="file" type="file" accept=".csv,text/csv"><button class="btn sm" id="tpl">Download template</button></div>
-      <textarea id="txt" class="field mono" rows="8" placeholder="…or paste CSV text here"></textarea>
-      <div class="col"><label class="lbl" for="imgs">Pictures (optional, select many)</label><input id="imgs" type="file" accept="image/*" multiple></div>
-      <div class="row"><button class="btn" id="check">Check</button><button class="btn dark" id="go" disabled>Import</button></div>
-      <div id="res"></div></div></div>`;
-  let ok = [];
-  $('#file').onchange = async (e) => { $('#txt').value = await e.target.files[0].text(); };
+    <div class="head"><div class="title"><h1>Import a paper</h1><span class="muted">Choose the CSV and its pictures. Nothing is saved until you press Import.</span></div><span class="grow"></span><button class="btn" id="tpl">Download template</button></div>
+    <div class="tray"><span class="lbl">1 · Files</span><div class="card stack">
+      <div class="row top-align">
+        <div class="col"><label class="lbl" for="file">CSV file</label><input id="file" type="file" accept=".csv,text/csv"></div>
+        <div class="col"><label class="lbl" for="imgs">Pictures · select all at once</label><input id="imgs" type="file" accept="image/*" multiple></div></div>
+      <details><summary class="muted">Or paste CSV text</summary><textarea id="txt" class="field mono" rows="6" aria-label="CSV text"></textarea></details>
+      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. Write x^2, 10^{-3}, H_2O, sqrt(10), A -> B. In Excel use Save As → "CSV UTF-8".</p></div></div>
+    <div id="chk"></div>
+    <div class="tray" id="opts" hidden><span class="lbl">3 · Save</span><div class="card stack">
+      <label class="opt"><input type="radio" name="mk" value="test" checked><span>Add to the bank <b>and create a test</b> from this paper</span></label>
+      <label class="opt"><input type="radio" name="mk" value="bank"> Add to the bank only</label>
+      <div class="row" id="tf">
+        <div class="col x2"><label class="lbl" for="title">Test title</label><input id="title" class="field"></div>
+        <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${soon()}"></div>
+        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="120"></div>
+        <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="1"></div>
+        <label class="opt"><input type="checkbox" id="pub"> Publish now</label></div>
+      <div class="err" id="msg" role="alert"></div>
+      <div class="row"><button class="btn dark lg" id="go">Import</button><span class="muted" id="gonote"></span></div></div></div>`;
+  let R = null, bank = null;
   $('#tpl').onclick = () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([CSV_HEADER + '\nPhysics,Laws of motion,"A 2 kg block ... speed? (g = 10 m/s^2)",4 m/s,2sqrt(10) m/s,8 m/s,10 m/s,B,"v^2 = 2as = 40",4,q1.png\n'], { type: 'text/csv' }));
-    a.download = 'questions-template.csv'; a.click();
+    a.href = URL.createObjectURL(new Blob(['﻿' + CSV_HEADER + '\nphysics,Electricity,"Three 6 ohm resistors are joined in parallel. The total resistance is",18 ohm,2 ohm,6 ohm,3 ohm,B,"1/R = 3/6, so R = 2 ohm",4,phy_p01_q01.png\nchemistry,"Acids, Bases and Salts","The pH of a neutral solution at 25 °C is",0,7,14,1,B,Neutral water has [H^+] = 10^{-7},4,\n'], { type: 'text/csv' }));
+    a.download = 'paper-template.csv'; a.click();
   };
-  $('#check').onclick = () => {
-    const r = readQuestions($('#txt').value);
-    const have = new Set([...$('#imgs').files].map((f) => f.name.toLowerCase()));
-    r.ok.forEach((q) => { if (q.image && !have.has(q.image.toLowerCase())) r.errors.push(`Picture "${q.image}" not selected`); });
-    ok = r.ok;
-    $('#go').disabled = !ok.length || r.errors.length > 0;
-    $('#res').innerHTML = `<div class="row tight"><span class="chip ok">✓ ${ok.length} valid</span>${r.errors.length ? `<span class="chip bad">✗ ${r.errors.length} with errors, fix them to import</span>` : ''}</div>
-      <div class="err">${r.errors.map(esc).join('<br>')}</div>`;
+  const check = async () => {
+    const txt = $('#txt').value;
+    if (!txt.trim()) { $('#chk').innerHTML = ''; $('#opts').hidden = true; return; }
+    if (!bank) {
+      $('#chk').innerHTML = '<p class="muted">Checking…</p>';
+      const b = await fetchAll(() => sb.from('questions').select('id,subject,chapter,body,test_questions(test_id)'));
+      if (b.error) return ($('#chk').innerHTML = `<p class="err">${esc(b.error.message)}</p>`);
+      bank = b.data;
+    }
+    const r = readQuestions(txt);
+    const files = new Map([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f]));
+    const known = new Map(bank.map((b) => [dupKey(b.subject, b.body), b]));
+    const chaps = new Set(bank.map((b) => b.chapter)), seen = new Set();
+    r.ok.forEach((q) => {
+      const k = dupKey(q.subject, q.body), ex = known.get(k);
+      q.existing = ex?.id ?? null;
+      if (seen.has(k)) r.errors.push(`Row ${q.row}: same question as an earlier row`);
+      seen.add(k);
+      if (ex) r.warnings.push(`Row ${q.row}: already in the bank${ex.test_questions.length ? ` and used in ${plural(ex.test_questions.length, 'test')}` : ''}. The bank copy is used; it is not added twice.`);
+      if (q.image && !ex) {
+        const f = files.get(q.image.toLowerCase());
+        if (!f) r.errors.push(`Row ${q.row}: picture "${q.image}" not selected`);
+        else if (f.size > 1.5e6) r.warnings.push(`Row ${q.row}: picture "${q.image}" is ${(f.size / 1e6).toFixed(1)} MB and will load slowly`);
+      }
+    });
+    const used = new Set(r.ok.map((q) => q.image?.toLowerCase()).filter(Boolean)), extra = [...files.keys()].filter((n) => !used.has(n));
+    if (extra.length) r.warnings.push(`Pictures not named in the CSV: ${extra.join(', ')}`);
+    const newCh = [...new Set(r.ok.filter((q) => q.chapter && !chaps.has(q.chapter)).map((q) => `${q.chapter} (${cap(q.subject)})`))];
+    if (bank.length && newCh.length) r.warnings.push(`New chapter names: ${newCh.join('; ')}. Check they are spelt as in earlier papers.`);
+    const n = SUBJECTS.map((s) => r.ok.filter((q) => q.subject === s).length);
+    if (n.some((c) => c !== 15)) r.warnings.push(`Subjects have ${n.join(' / ')} questions (P / C / M / B), not 15 each.`);
+    R = r;
+    const fresh = r.ok.filter((q) => !q.existing).length, urls = [];
+    const thumb = (q) => { const f = q.image && files.get(q.image.toLowerCase()); if (!f) return q.image ? `<span class="mono muted">${esc(q.image)}</span>` : ''; const u = URL.createObjectURL(f); urls.push(u); return `<img class="thumb" src="${u}" alt="${esc(q.image)}">`; };
+    $('#chk').innerHTML = `<div class="tray"><span class="lbl">2 · Check</span><div class="card stack">
+      <div class="row tight">${r.errors.length ? `<span class="chip bad">✗ ${plural(r.errors.length, 'problem')} to fix</span>` : '<span class="chip ok">✓ Ready to import</span>'}
+        <span class="chip">${plural(r.ok.length, 'question')}</span>${SUBJECTS.map((s, i) => `<span class="chip ${n[i] === 15 ? '' : 'warn'}">${cap(s).slice(0, 4)} ${n[i]}</span>`).join('')}${fresh < r.ok.length ? `<span class="chip">${r.ok.length - fresh} already in bank</span>` : ''}</div>
+      ${r.errors.length ? `<div class="issues bad"><b>Fix these first</b> (missing pictures: add them above; anything else: fix the CSV and choose it again)<ul>${r.errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${r.warnings.length ? `<div class="issues"><b>Check these</b> (import still works)<ul>${r.warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      <div class="tbl pv"><table><tr><th>Row</th><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th>Picture</th></tr>
+        ${r.ok.map((q) => `<tr><td class="mono">${q.row}</td><td>${cap(q.subject)}</td><td>${esc(q.chapter)}</td><td>${fmt(q.body.slice(0, 120))}${q.body.length > 120 ? '…' : ''}${q.existing ? ' <span class="chip">In bank</span>' : ''}</td><td class="mono">${'ABCD'[q.correct]}</td><td>${thumb(q)}</td></tr>`).join('')}</table></div></div></div>`;
+    $('#opts').hidden = !r.ok.length;
+    $('#go').disabled = !!r.errors.length || !r.ok.length;
+    $('#gonote').textContent = r.errors.length ? 'Fix the problems above first.' : '';
   };
+  const mode = () => view.querySelector('input[name=mk]:checked').value;
+  view.onchange = async (e) => {
+    const t = e.target;
+    if (t.id === 'file' && t.files[0]) {
+      $('#txt').value = await t.files[0].text();
+      if (!$('#title').value) $('#title').value = t.files[0].name.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ');
+    }
+    if (t.name === 'mk') { $('#tf').hidden = mode() !== 'test'; $('#go').textContent = mode() === 'test' ? 'Import and create test' : 'Import'; return; }
+    if (['file', 'imgs'].includes(t.id)) check();
+  };
+  let deb = 0;
+  view.oninput = (e) => { if (e.target.id === 'txt') { clearTimeout(deb); deb = setTimeout(check, 400); } };
+  $('#go').textContent = 'Import and create test';
   $('#go').onclick = async () => {
-    $('#go').disabled = true;
+    const msg = $('#msg'), test = mode() === 'test';
+    msg.textContent = '';
+    if (!R || R.errors.length) return;
+    if (test && (!$('#title').value.trim() || !$('#start').value)) return (msg.textContent = 'Give the test a title and an opening time.');
+    $('#go').disabled = true; $('#go').textContent = 'Importing…';
+    const fail = (m) => { msg.textContent = m; $('#go').disabled = false; $('#go').textContent = test ? 'Import and create test' : 'Import'; };
+    const fresh = R.ok.filter((q) => !q.existing);
     const files = Object.fromEntries([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f])), urls = {}, paths = [];
     const undo = () => paths.length && sb.storage.from(IMG).remove(paths);
-    for (const name of new Set(ok.map((q) => q.image?.toLowerCase()).filter(Boolean))) {
+    for (const name of new Set(fresh.map((q) => q.image?.toLowerCase()).filter(Boolean))) {
       const path = `${crypto.randomUUID()}.${name.split('.').pop()}`;
       const up = await sb.storage.from(IMG).upload(path, files[name]);
-      if (up.error) { await undo(); return ($('#res').innerHTML = `<p class="err">Nothing imported: ${esc(up.error.message)}</p>`); }
+      if (up.error) { await undo(); return fail(`Nothing imported: ${up.error.message}`); }
       paths.push(path); urls[name] = sb.storage.from(IMG).getPublicUrl(path).data.publicUrl;
     }
-    const { data, error } = await sb.from('questions')
-      .insert(ok.map(({ correct, solution, image, ...q }) => ({ ...q, image_url: image ? urls[image.toLowerCase()] : null }))).select('id');
-    if (error) { await undo(); return ($('#res').innerHTML = `<p class="err">${esc(error.message)}</p>`); }
-    // ponytail: relies on insert..returning keeping row order; add a client id column if that ever breaks
-    const keys = await sb.from('question_keys').insert(data.map((d, i) => ({ question_id: d.id, correct: ok[i].correct, solution: ok[i].solution })));
-    if (keys.error) {
-      await sb.from('questions').delete().in('id', data.map((d) => d.id)); // all or nothing
-      await undo();
-      return ($('#res').innerHTML = `<p class="err">Nothing imported: ${esc(keys.error.message)}</p>`);
+    // ids made here so keys and test rows match exactly; created_at keeps the CSV order
+    const base = Date.now();
+    fresh.forEach((q) => (q.id = crypto.randomUUID()));
+    if (fresh.length) {
+      const ins = await sb.from('questions').insert(fresh.map((q, i) => ({ id: q.id, subject: q.subject, chapter: q.chapter, body: q.body, options: q.options, marks: q.marks,
+        image_url: q.image ? urls[q.image.toLowerCase()] : null, created_at: new Date(base + i).toISOString() })));
+      if (ins.error) { await undo(); return fail(`Nothing imported: ${ins.error.message}`); }
+      const keys = await sb.from('question_keys').insert(fresh.map((q) => ({ question_id: q.id, correct: q.correct, solution: q.solution })));
+      if (keys.error) {
+        await sb.from('questions').delete().in('id', fresh.map((q) => q.id)); // all or nothing
+        await undo(); return fail(`Nothing imported: ${keys.error.message}`);
+      }
     }
-    go('questions');
+    bank = null;
+    if (!test) { toast(`Imported ${plural(fresh.length, 'question')}`); return go('questions'); }
+    const t = await sb.from('tests').insert({ title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value) || 120,
+      neg_marks: Number($('#neg').value), published: $('#pub').checked, cheat_flags: true, strategies: Object.keys(STRATEGIES) }).select('id').single();
+    if (t.error) { toast(`Questions imported, but the test was not created: ${t.error.message}`); return go('questions'); }
+    const order = [...R.ok].sort((a, b) => SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject)); // stable: CSV order inside each subject
+    const tq = await sb.from('test_questions').insert(order.map((q, i) => ({ test_id: t.data.id, question_id: q.existing ?? q.id, position: i + 1 })));
+    if (tq.error) { await sb.from('tests').delete().eq('id', t.data.id); toast(`Questions imported, but the test was not created: ${tq.error.message}`); return go('questions'); }
+    toast(`Imported ${plural(fresh.length, 'question')} and created the test`);
+    go('preview', t.data.id);
   };
 }
 
 /* ---------- Tests ---------- */
 async function vTests() {
-  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks))').order('start_at', { ascending: false });
+  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, question_keys(correct))), attempts(id, submitted_at)').order('start_at', { ascending: false });
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
-    <div class="head"><h1>Tests</h1><span class="grow"></span><button class="btn dark" id="new">New test</button></div>
+    <div class="head"><div class="title"><h1>Tests</h1><span class="muted">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
     <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card tbl"><table>
-      <tr><th>Title</th><th>Starts</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th></th></tr>
+      <tr><th>Title</th><th>Opens</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th>Taken</th><th></th></tr>
       ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}</td>
-        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}</td>
-        <td>${statusChip(t)}</td>
-        <td class="actions"><button class="btn sm" data-e="${t.id}">Edit</button>
-        <button class="btn sm" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
-        <button class="btn sm danger" data-d="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No tests yet.</td></tr>'}
+        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks} · ${t.duration_min}m</td>
+        <td>${statusChip(t)}</td><td class="mono">${t.attempts.filter((a) => a.submitted_at).length || '–'}${t.attempts.some((a) => !a.submitted_at) ? ' <span class="chip">in progress</span>' : ''}</td>
+        <td class="actions"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
+        <button class="btn sm ${t.published ? '' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
+        <button class="btn sm danger" data-d="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No tests yet. Import a paper to create one.</td></tr>'}
     </table></div></div>`;
-  $('#new').onclick = () => go('testform');
-  view.querySelectorAll('[data-e]').forEach((b) => (b.onclick = () => go('testform', data.find((t) => t.id === b.dataset.e))));
-  view.querySelectorAll('[data-p]').forEach((b) => (b.onclick = async () => {
-    const t = data.find((x) => x.id === b.dataset.p);
-    const n = counts(t);
-    if (!t.published && n.some((c) => c !== 15) && !confirm(`Subjects have ${n.join(' / ')} questions, not 15 each. Publish anyway?`)) return;
-    await sb.from('tests').update({ published: !t.published }).eq('id', t.id);
-    vTests();
-  }));
-  view.querySelectorAll('[data-d]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Delete this test and its attempts?')) return;
-    await sb.from('tests').delete().eq('id', b.dataset.d);
-    vTests();
-  }));
+  view.onclick = async (e) => {
+    const b = e.target.closest('[data-v],[data-e],[data-p],[data-d],#new'); if (!b) return;
+    if (b.id === 'new') return go('testform');
+    if (b.dataset.v) { e.preventDefault(); return go('preview', b.dataset.v); }
+    const t = data.find((x) => x.id === (b.dataset.e || b.dataset.p || b.dataset.d));
+    if (b.dataset.e) go('testform', t);
+    else if (b.dataset.p) {
+      if (!t.published) {
+        const n = counts(t), keyless = t.test_questions.filter((x) => !x.questions.question_keys).length, issues = [];
+        if (!t.test_questions.length) return toast('Add questions before publishing.');
+        if (n.some((c) => c !== 15)) issues.push(`subjects have ${n.join(' / ')} questions, not 15 each`);
+        if (keyless) issues.push(`${plural(keyless, 'question')} without an answer key`);
+        if (issues.length && !confirm(`This test has ${issues.join(' and ')}. Publish anyway?`)) return;
+      }
+      const { error } = await sb.from('tests').update({ published: !t.published }).eq('id', t.id);
+      if (error) return toast(error.message);
+      toast(t.published ? 'Unpublished' : `Published. She can open it from ${when(Date.parse(t.start_at) - 15 * 60000)}.`);
+      vTests();
+    } else if (b.dataset.d) {
+      const done = t.attempts.length;
+      if (!confirm(`Delete "${t.title}"${done ? ` and her ${plural(done, 'attempt')} at it` : ''}? Questions stay in the bank. This cannot be undone.`)) return;
+      const { error } = await sb.from('tests').delete().eq('id', t.id);
+      if (error) return toast(error.message);
+      toast('Test deleted'); vTests();
+    }
+  };
+}
+
+// The whole paper as she will see it, with answers, plus a pre-publish checklist
+async function vPreview(id) {
+  if (!id) return go('tests');
+  view.innerHTML = '<p class="muted">Loading…</p>';
+  const { data: t, error } = await sb.from('tests').select('*, test_questions(position, questions(*, question_keys(correct, solution)))').eq('id', id).single();
+  if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
+  const qs = t.test_questions.sort((a, b) => a.position - b.position).map((x) => x.questions);
+  const n = SUBJECTS.map((s) => qs.filter((q) => q.subject === s).length), keyless = qs.filter((q) => !q.question_keys).length;
+  const checks = [[qs.length === 60, `${qs.length} questions`], [n.every((c) => c === 15), `${n.join(' / ')} per subject (P / C / M / B)`],
+    [!keyless, keyless ? `${plural(keyless, 'question')} without an answer key` : 'Every question has an answer key'],
+    [qs.every((q) => q.chapter), 'Every question has a chapter'], [true, `+${[...new Set(qs.map((q) => q.marks))].join('/')} / −${t.neg_marks}, ${t.duration_min} min`]];
+  view.innerHTML = `<div class="head"><div class="title"><h1>${esc(t.title)}</h1><span class="muted">Opens ${when(t.start_at)} · ${statusOf(t)}</span></div><span class="grow"></span>
+      <button class="btn" id="edit">Edit</button><button class="btn ${t.published ? '' : 'dark'}" id="pub">${t.published ? 'Unpublish' : 'Publish'}</button></div>
+    <div class="tray"><span class="lbl">Checklist</span><div class="card list">${checks.map(([ok, txt]) => `<div class="li"><span class="chip ${ok ? 'ok' : 'warn'}">${ok ? '✓' : '!'}</span><span>${txt}</span></div>`).join('')}
+      <div class="li" id="imgcheck"><span class="chip">…</span><span>Checking pictures</span></div></div></div>
+    ${SUBJECTS.filter((s, i) => n[i]).map((s) => `<div class="tray"><span class="lbl">${cap(s)} · ${n[SUBJECTS.indexOf(s)]}</span><div class="card list">${qs.filter((q) => q.subject === s).map((q, i) => `<div class="qblock pq">
+      <div class="row tight"><span class="mono muted">Q${i + 1}</span><span class="chip">${esc(q.chapter) || 'No chapter'}</span><span class="grow"></span><button class="btn sm" data-q="${q.id}">Edit question</button></div>
+      <div class="qbody">${fmt(q.body)}</div>${q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure">` : ''}
+      ${q.options.map((o, j) => `<div class="optline ${q.question_keys?.correct === j ? 'right' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${q.question_keys?.correct === j ? '<span>✓ answer</span>' : ''}</div>`).join('')}
+      ${q.question_keys?.solution ? `<p class="sol">${fmt(q.question_keys.solution)}</p>` : ''}</div>`).join('')}</div></div>`).join('') || '<p class="muted">No questions in this test yet.</p>'}`;
+  const imgs = [...view.querySelectorAll('.qimg')];
+  Promise.all(imgs.map((im) => (im.complete ? Promise.resolve(im.naturalWidth > 0) : new Promise((r) => { im.onload = () => r(true); im.onerror = () => r(false); })))).then((ok) => {
+    const bad = ok.filter((x) => !x).length, el = $('#imgcheck'); if (!el) return;
+    el.innerHTML = `<span class="chip ${bad ? 'warn' : 'ok'}">${bad ? '!' : '✓'}</span><span>${imgs.length ? (bad ? `${plural(bad, 'picture')} did not load` : `All ${plural(imgs.length, 'picture')} load`) : 'No pictures'}</span>`;
+  });
+  $('#edit').onclick = () => go('testform', t);
+  $('#pub').onclick = async () => {
+    if (!t.published && checks.some(([ok]) => !ok) && !confirm('Some checks are not met. Publish anyway?')) return;
+    const { error } = await sb.from('tests').update({ published: !t.published }).eq('id', t.id);
+    if (error) return toast(error.message);
+    toast(t.published ? 'Unpublished' : 'Published'); vPreview(id);
+  };
+  view.onclick = (e) => { const b = e.target.closest('[data-q]'); if (b) go('form', { ...qs.find((q) => q.id === b.dataset.q), test_questions: [{ test_id: id }] }); };
 }
 
 async function vTestForm(t) {
-  const [{ data: qs }, { data: cur }, { count: attempts }] = await Promise.all([
-    sb.from('questions').select('id,subject,chapter,body').order('created_at'),
-    t ? sb.from('test_questions').select('question_id').eq('test_id', t.id) : { data: [] },
+  view.innerHTML = '<p class="muted">Loading…</p>';
+  const [{ data: qs }, { data: use }, { count: attempts }] = await Promise.all([
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,body').order('created_at')),
+    fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
   ]);
-  const chosen = new Set(cur.map((x) => x.question_id));
-  const start = t ? toLocal(t.start_at) : '';
+  if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
+  const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
+  const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
   view.innerHTML = `
     <div class="head"><h1>${t ? 'Edit' : 'New'} test</h1></div>
     <div class="tray"><span class="lbl">Settings</span><div class="card stack">
       <div class="row">
         <div class="col x2"><label class="lbl" for="title">Title</label><input id="title" class="field" value="${esc(t?.title ?? '')}"></div>
-        <div class="col"><label class="lbl" for="start">Starts</label><input id="start" class="field" type="datetime-local" value="${start}"></div>
-        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="10" value="${t?.duration_min ?? 120}"></div>
+        <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${t ? toLocal(t.start_at) : soon()}"></div>
+        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="${t?.duration_min ?? 120}"></div>
         <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
       </div>
+      <p class="muted">She can download it 15 minutes before it opens and start any time after. One attempt per test; reset it from Results if she needs to retake.</p>
       <div class="row">
-        <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Cheat flags on</label>
+        <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Record leaving fullscreen or the app</label>
         <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
       </div>
       <div class="stack tight"><span class="lbl">Strategies she can pick</span>
         <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div>
     </div></div>
-    <div class="row top-align">${SUBJECTS.map((s) => `
-      <div class="tray fill"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
-        <div class="card list pick">${qs.filter((x) => x.subject === s).map((x) => `
-          <label><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div>
-    <div class="err" id="msg" role="alert">${attempts ? 'This test already has attempts, so its questions and marking are locked.' : ''}</div>
+    <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="grow"></span>
+      <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
+      <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label>
+      <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
+      <div class="card"><div class="row top-align">${SUBJECTS.map((s) => `
+      <div class="col pickcol"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
+        <div class="list pick">${qs.filter((x) => x.subject === s).map((x) => `
+          <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div></div></div>
+    <div class="err" id="msg" role="alert">${attempts ? 'She has taken this test, so its questions and marking are locked. You can still change the title, time and publishing.' : ''}</div>
     <div class="row"><button class="btn dark" id="save">Save test</button><button class="btn" id="back">Cancel</button></div>`;
 
   const count = () => SUBJECTS.forEach((s) => ($(`#n-${s}`).textContent = view.querySelectorAll(`.q[data-s=${s}]:checked`).length));
-  view.onchange = count; count();
-  if (attempts) view.querySelectorAll('.q, #neg').forEach((x) => (x.disabled = true));
+  const filter = () => { const f = $('#qf').value.toLowerCase(), h = $('#hide').checked;
+    view.querySelectorAll('.pick label').forEach((l) => (l.hidden = (f && !l.dataset.t.includes(f)) || (h && l.dataset.u !== '0' && !l.querySelector('input').checked))); };
+  view.onchange = () => { count(); filter(); };
+  view.oninput = (e) => { if (e.target.id === 'qf') filter(); };
+  count();
+  if (attempts) view.querySelectorAll('.q, #neg, #fill').forEach((x) => (x.disabled = true));
+  $('#fill').onclick = () => {
+    const short = [];
+    SUBJECTS.forEach((s) => {
+      const boxes = [...view.querySelectorAll(`.q[data-s=${s}]`)];
+      let need = 15 - boxes.filter((b) => b.checked).length;
+      const pool = boxes.filter((b) => !b.checked && !elsewhere.has(b.value)).sort(() => Math.random() - 0.5);
+      while (need > 0 && pool.length) { pool.pop().checked = true; need--; }
+      if (need > 0) short.push(`${cap(s)} needs ${need} more`);
+    });
+    count(); filter();
+    toast(short.length ? `Not enough unused questions: ${short.join(', ')}` : 'Filled with unused questions');
+  };
   $('#back').onclick = () => go('tests');
   $('#save').onclick = async () => {
     const msg = $('#msg');
-    if (!$('#title').value.trim() || !$('#start').value) return (msg.textContent = 'Title and start time are needed.');
+    if (!$('#title').value.trim() || !$('#start').value) return (msg.textContent = 'Title and opening time are needed.');
     const strategies = [...view.querySelectorAll('.st:checked')].map((x) => x.value);
     if (!strategies.length) return (msg.textContent = 'Allow at least one strategy.');
-    const row = { title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value), neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies };
+    $('#save').disabled = true;
+    const row = { title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value) || 120, neg_marks: Number($('#neg').value), cheat_flags: $('#cheat').checked, published: $('#pub').checked, strategies };
     const r = t ? await sb.from('tests').update(row).eq('id', t.id).select('id').single() : await sb.from('tests').insert(row).select('id').single();
-    if (r.error) return (msg.textContent = r.error.message);
+    if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
     if (!attempts) {
       let pos = 0; const rows = [];
       SUBJECTS.forEach((s) => view.querySelectorAll(`.q[data-s=${s}]:checked`).forEach((x) => rows.push({ test_id: r.data.id, question_id: x.value, position: ++pos })));
       // write the new list first, then drop unticked ones, so a failure never leaves the test empty
-      if (rows.length) { const up = await sb.from('test_questions').upsert(rows); if (up.error) return (msg.textContent = up.error.message); }
-      const del = sb.from('test_questions').delete().eq('test_id', r.data.id);
-      const d = await (rows.length ? del.not('question_id', 'in', `(${rows.map((x) => x.question_id).join(',')})`) : del);
-      if (d.error) return (msg.textContent = d.error.message);
+      if (rows.length) { const up = await sb.from('test_questions').upsert(rows); if (up.error) { $('#save').disabled = false; return (msg.textContent = up.error.message); } }
+      const keep = new Set(rows.map((x) => x.question_id)), gone = [...chosen].filter((id) => !keep.has(id));
+      for (let i = 0; i < gone.length; i += 100) {
+        const d = await sb.from('test_questions').delete().eq('test_id', r.data.id).in('question_id', gone.slice(i, i + 100));
+        if (d.error) { $('#save').disabled = false; return (msg.textContent = d.error.message); }
+      }
     }
-    go('tests');
+    toast('Test saved');
+    go('preview', r.data.id);
   };
 }
 
@@ -401,9 +611,35 @@ async function vResults(sid) {
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Per question</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
-        ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}</div></details>`;
+        ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}
+        <div class="row"><button class="btn sm" data-sheet="${a.test_id}">Answer sheet</button><button class="btn sm danger" data-reset="${a.id}">Reset so she can retake</button></div></div></details>`;
     }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></div>`;
   $('#stu')?.addEventListener('change', (e) => vResults(e.target.value));
+  view.onclick = async (e) => {
+    const b = e.target.closest('[data-sheet],[data-reset]'); if (!b) return;
+    if (b.dataset.sheet) return go('sheet', { test: b.dataset.sheet, sid: d.sid });
+    const a = d.attempts.find((x) => x.id === b.dataset.reset);
+    if (!confirm(`Delete her attempt at "${a.title}" (score ${a.score})? She can then take it again. This cannot be undone.`)) return;
+    const { error, count } = await sb.from('attempts').delete({ count: 'exact' }).eq('id', a.id);
+    if (error || !count) return toast(error?.message ?? 'Not allowed yet: the database update for resets has not been applied.');
+    toast('Attempt reset'); vResults(d.sid);
+  };
+}
+
+// Her answers for one test, question by question
+async function vSheet(arg) {
+  if (!arg) return go('results');
+  const r = await sb.rpc('get_result', { p_test: arg.test, p_student: arg.sid });
+  if (r.error) return (view.innerHTML = `<p class="err">${esc(r.error.message)}</p>`);
+  const { attempt: a, test, questions: qs } = r.data, times = a.times || {}, marked = a.marked || [];
+  const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
+  view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
+    ${SUBJECTS.filter((s) => qs.some((q) => q.subject === s)).map((s) => `<div class="tray"><span class="lbl">${cap(s)}</span><div class="card list">${qs.filter((q) => q.subject === s).map((q, i) => {
+      const ch = a.answers[q.id], v = verdictOf(ch, q.correct);
+      return `<details class="rv"><summary><span class="chip ${lbl[v][0]}">${lbl[v][1]}</span><span class="mono muted">Q${i + 1}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted">${mmss(times[q.id])}${marked.includes(q.id) ? ' · marked' : ''}</span></summary>
+        <div class="qblock"><div class="qbody">${fmt(q.body)}</div>${q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure">` : ''}
+        ${q.options.map((o, j) => `<div class="optline ${j === q.correct ? 'right' : ch === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === q.correct ? '<span>✓ correct</span>' : ch === j ? '<span>✗ her answer</span>' : ''}</div>`).join('')}
+        ${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div></details>`; }).join('')}</div></div>`).join('')}`;
 }
 
 async function vReport(sid, days = 7) {

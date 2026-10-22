@@ -15,11 +15,13 @@ export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Escape first, then turn sqrt(x), x^2, x^{-3}, H_2O into readable markup.
+// x^23 and C_12 take the whole number; letters take one character. -> and <=> become arrows.
 export const fmt = (s) =>
   esc(s)
     .replace(/sqrt\(([^()]*)\)/g, '√($1)')
-    .replace(/\^\{([^}]+)\}|\^(-?\w)/g, (_, a, b) => `<sup>${a ?? b}</sup>`)
-    .replace(/_\{([^}]+)\}|_(\w)/g, (_, a, b) => `<sub>${a ?? b}</sub>`)
+    .replace(/&lt;=&gt;/g, '⇌').replace(/-&gt;/g, '→')
+    .replace(/\^\{([^}]+)\}|\^(-?\d+(?:\.\d+)?|-?\w)/g, (_, a, b) => `<sup>${a ?? b}</sup>`)
+    .replace(/_\{([^}]+)\}|_(\d+|\w)/g, (_, a, b) => `<sub>${a ?? b}</sub>`)
     .replace(/\n/g, '<br>');
 
 // Minimal RFC-4180 CSV parser: quoted fields, "" escapes, newlines inside quotes.
@@ -74,13 +76,13 @@ export function phaseOf(strategy, elapsedMs, durationMs, order = SUBJECTS) {
 // Rows -> { ok: [question objects], errors: ['Row 3: ...'] }
 export function readQuestions(csvText) {
   const rows = parseCSV(csvText.replace(/^﻿/, ''));
-  if (!rows.length) return { ok: [], errors: ['File is empty'] };
+  if (!rows.length) return { ok: [], errors: ['File is empty'], warnings: [] };
   const head = rows[0].map((h) => h.trim().toLowerCase());
   const col = (name) => head.indexOf(name);
   const need = ['subject', 'question', 'option_a', 'option_b', 'option_c', 'option_d', 'correct'];
   const missing = need.filter((n) => col(n) < 0);
-  if (missing.length) return { ok: [], errors: ['Missing columns: ' + missing.join(', ')] };
-  const ok = [], errors = [];
+  if (missing.length) return { ok: [], errors: ['Missing columns: ' + missing.join(', ')], warnings: [] };
+  const ok = [], errors = [], warnings = [];
   rows.slice(1).forEach((r, i) => {
     const g = (n) => (col(n) < 0 ? '' : (r[col(n)] ?? '').trim());
     const line = i + 2;
@@ -94,10 +96,47 @@ export function readQuestions(csvText) {
     else if (options.some((o) => !o)) errors.push(`Row ${line}: all 4 options are needed`);
     else if (correct < 0) errors.push(`Row ${line}: correct must be A, B, C or D`);
     else if (!Number.isFinite(marks) || marks <= 0) errors.push(`Row ${line}: bad marks`);
-    else ok.push({ subject: subj, chapter: g('chapter'), body: g('question'), options, marks, correct, solution: g('solution'), image: g('image') });
+    else {
+      ok.push({ row: line, subject: subj, chapter: g('chapter'), body: g('question'), options, marks, correct, solution: g('solution'), image: g('image') });
+      if (!g('chapter')) warnings.push(`Row ${line}: no chapter (weak-chapter tracking needs it)`);
+      if (new Set(options.map((o) => o.toLowerCase())).size < 4) warnings.push(`Row ${line}: two options are the same`);
+    }
   });
-  return { ok, errors };
+  return { ok, errors, warnings };
 }
+
+/* ---------- exam palette ---------- */
+
+// Exam-style palette states. AM = answered and marked: it is still scored.
+export const STATE = { V: 'Not visited', S: 'Not answered', A: 'Answered', M: 'Marked, no answer', AM: 'Answered and marked' };
+export const qStatus = (id, answers, marked, visited) => {
+  const a = answers[id] != null, m = marked.includes(id);
+  return a && m ? 'AM' : m ? 'M' : a ? 'A' : visited.includes(id) ? 'S' : 'V';
+};
+// Per subject counts for the submit summary: { subject: { A, AM, M, S, V } }
+export function stateCounts(qs, answers, marked, visited) {
+  const out = {};
+  for (const q of qs) {
+    const e = (out[q.subject] ??= { A: 0, AM: 0, M: 0, S: 0, V: 0 });
+    e[qStatus(q.id, answers, marked, visited)]++;
+  }
+  return out;
+}
+
+// One question's outcome with timing. target = seconds a question should take (paper time / questions).
+// Fast wrong answers are likely careless or guessed; slow ones cost time other questions needed.
+export function attemptKind(chosen, correct, secs, target) {
+  if (chosen == null) return secs >= target ? 'skipped_late' : 'skipped';
+  if (chosen === correct) return secs > 1.5 * target ? 'correct_slow' : 'correct';
+  return secs < 0.3 * target ? 'wrong_fast' : secs > 1.5 * target ? 'wrong_slow' : 'wrong';
+}
+export const KIND = {
+  correct: 'Correct in time', correct_slow: 'Correct but slow', wrong_fast: 'Wrong and rushed',
+  wrong: 'Wrong', wrong_slow: 'Wrong after a long time', skipped: 'Skipped quickly', skipped_late: 'Skipped after a long time',
+};
+
+// Average marks from guessing among k options left, with +marks / -neg.
+export const guessValue = (k, marks, neg) => Math.round(((marks - (k - 1) * neg) / k) * 100) / 100;
 
 /* ---------- analytics (used by student Progress and admin Report) ---------- */
 

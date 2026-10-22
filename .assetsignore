@@ -4,3 +4,4 @@ wrangler.jsonc
 node_modules
 .wrangler
 util.test.mjs
+db
