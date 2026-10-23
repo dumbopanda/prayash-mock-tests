@@ -1,5 +1,5 @@
 // Network first, cache fallback: once a page has loaded online, it also opens in airplane mode.
-const V = 'v7';
+const V = 'v8';
 const SB = 'https://rfenuwnboyktdprlmgct.supabase.co';
 const FILES = ['index.html', 'student.html', 'style.css', 'shared.js', 'util.js', 'supabase.js', 'icon-192.png', 'fonts/inter.woff2', 'fonts/jetbrains-mono.woff2'];
 

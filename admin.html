@@ -30,6 +30,7 @@
 import { sb, rpc, currentUser, logout } from './shared.js';
 import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
+try { screen.orientation?.unlock?.(); } catch { /* not supported */ } // admin: any orientation; only her test pages lock to landscape
 const $ = (s) => document.querySelector(s);
 const view = $('#view');
 const IMG = 'question-images';
