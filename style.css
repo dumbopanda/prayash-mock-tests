@@ -417,3 +417,8 @@ body.exam #toast{top:4.25rem}
 #dlgText p+p{margin-top:var(--s2)}
 #dlgText p{margin-top:var(--s1)}
 .btn.plain{border-color:transparent;background:none;color:var(--blue);padding:0 var(--s2)}
+/* installed admin app: keep clear of the status bar / home bar, stack page actions on phones */
+.topbar{padding-top:env(safe-area-inset-top);height:calc(4rem + env(safe-area-inset-top));padding-left:max(var(--s4),env(safe-area-inset-left));padding-right:max(var(--s4),env(safe-area-inset-right))}
+.side{padding-top:env(safe-area-inset-top);padding-bottom:max(var(--s3),env(safe-area-inset-bottom))}
+.main .page{padding-bottom:max(3.5rem,calc(env(safe-area-inset-bottom) + 1.5rem))}
+@media(max-width:600px){.head .grow{display:none}.head .title{flex:1 1 100%}}
