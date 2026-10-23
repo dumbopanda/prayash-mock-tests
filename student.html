@@ -89,6 +89,7 @@ async function home() {
   document.body.classList.remove('exam');
   const me = await currentUser();
   if (!me) { location.href = 'index.html'; return; }
+  if (me.role === 'admin') { location.replace('admin.html'); return; }
   const [t, a] = await Promise.all([
     sb.from('tests').select('*').eq('published', true).order('start_at'),
     sb.rpc('get_progress'),
