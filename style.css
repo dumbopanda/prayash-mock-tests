@@ -52,7 +52,7 @@ b{font-weight:500}
 .col.x2{flex:2}.col.s{flex:0 0 6rem;min-width:0}.col.m{flex:0 0 8.125rem;min-width:0}
 .stack{display:flex;flex-direction:column;gap:var(--s3)}
 .stack.tight{gap:var(--s2)}
-.split{display:grid;grid-template-columns:minmax(0,1fr) 21.25rem;gap:var(--s4)}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 21.25rem;gap:var(--s4);align-items:start}
 @media(max-width:860px){.split{grid-template-columns:1fr}}
 .center{display:grid;place-items:center;min-height:100vh;padding:var(--s4)}
 .narrow{width:100%;max-width:23.75rem}
@@ -104,12 +104,22 @@ textarea.field.mono{font-size:var(--fs-sm)}
 .opt input[type=radio],.opt input[type=checkbox]{flex-shrink:0;width:1.125rem;height:1.125rem;accent-color:var(--blue)}
 .err{color:var(--bad);font-size:var(--fs-sm)}
 
-/* hover feedback */
+/* hover feedback, only where there is a mouse: on a touch screen a tapped button would stay tinted */
+@media(hover:hover){
 .btn:hover:not(:disabled){background:var(--tray)}
 .btn.dark:hover:not(:disabled){background:#1A43BF;border-color:#1A43BF}
 .btn.danger:hover:not(:disabled){background:var(--bad-bg)}
 .tab:hover,.seg:hover:not(:disabled),.strat:hover,.optrow:hover:not(:disabled){background:var(--tray)}
 .pick label:hover,details.rv summary:hover{background:var(--tray)}
+.btn.mark:hover:not(:disabled){background:color-mix(in srgb,var(--mark) 8%,white)}
+.omr-row:hover{background:#fff}
+}
+.btn:active:not(:disabled){filter:brightness(.95)}
+.field:disabled{background:var(--tray);color:var(--muted);cursor:not-allowed}
+input[type=file]{font-size:var(--fs-sm);color:var(--muted)}
+input[type=file]::file-selector-button{min-height:2.5rem;padding:0 var(--s4);margin-right:var(--s3);border-radius:0.5625rem;border:1px solid var(--field);background:#fff;font:500 var(--fs-sm) Inter,sans-serif;color:var(--ink);cursor:pointer}
+/* one line, cut with … */
+.clip{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---- data ---- */
 table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
@@ -148,7 +158,7 @@ body.exam{user-select:none;-webkit-user-select:none;overscroll-behavior:none}
 .segs{display:flex;flex-wrap:wrap;gap:2px;padding:0.1875rem;background:var(--soft);border-radius:0.6875rem}
 .optrow{display:flex;align-items:center;gap:var(--s4);width:100%;text-align:left;padding:var(--s4) 0.875rem;background:none;border:0;font-size:calc(1.0625rem * var(--q,1));border-radius:0.5rem;min-height:3.5rem}
 .optrow+.optrow{border-top:1px solid var(--rule);border-radius:0}
-.optrow.on{background:var(--tray);font-weight:500;border-radius:0.5rem}
+.optrow.on{background:color-mix(in srgb,var(--blue) 7%,white);box-shadow:inset 3px 0 0 var(--blue);font-weight:500;border-radius:0.5rem}
 .optrow.right{color:var(--ok);font-weight:500}.optrow.wrong{color:var(--bad)}
 .optrow:disabled{cursor:default}
 .optrow .tag{margin-left:auto;font-size:var(--fs-sm)}
@@ -202,7 +212,7 @@ details.rv summary{cursor:pointer;display:flex;gap:0.625rem;align-items:baseline
 details.rv summary>.grow{min-width:0}
 
 /* score trend chart */
-.trend{display:block;width:100%;max-width:36rem;height:auto}
+.trend{display:block;width:100%;height:auto}
 .trend .axis{stroke:var(--line)}
 .trend .line{fill:none;stroke:var(--blue);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
 .trend circle{fill:var(--blue)}
@@ -263,7 +273,7 @@ a.todo:hover{background:var(--tray)}
 .main .stat.card{border-radius:0.75rem;box-shadow:none;padding:var(--s4) 1.25rem}
 .main .stat>.lbl{font:400 var(--fs-sm) Inter,sans-serif;letter-spacing:0;text-transform:none}
 .main .stat .v{font-size:1.75rem}
-.bars{display:block;width:100%;max-width:36rem;height:auto}
+.bars{display:block;width:100%;height:auto}
 .bars rect{fill:var(--blue)}.bars rect.z{fill:var(--empty)}
 .bars .val{font:500 0.6875rem var(--mono);fill:var(--ink)}
 .bars .x{font:400 0.6875rem Inter,sans-serif;fill:var(--muted)}
@@ -354,14 +364,14 @@ body.exam .shell{padding:0;max-width:none;min-height:0}
 .xm .opts{max-width:52rem}
 .xm-foot{grid-area:foot;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);padding:var(--s2) var(--s4);border-top:1px solid var(--line);background:#fff}
 .btn.mark{color:var(--mark);border-color:color-mix(in srgb,var(--mark) 45%,white)}
-.btn.mark:hover:not(:disabled){background:color-mix(in srgb,var(--mark) 8%,white)}
 .btn.wide{min-width:10rem}
 .chip.mark-chip{background:color-mix(in srgb,var(--mark) 14%,white);color:var(--mark)}
 .xm-side{grid-area:side;display:flex;flex-direction:column;gap:var(--s3);padding:var(--s3) var(--s4);background:var(--tray);border-left:1px solid var(--line);overflow-y:auto;min-height:0}
 .xm-side .phase{display:flex;flex-direction:column;gap:2px;padding-bottom:var(--s2);border-bottom:1px solid var(--line)}
 .side-h{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s2)}
-.xm-side .pal{grid-template-columns:repeat(auto-fill,minmax(3rem,1fr));gap:var(--s2)}
-.xm-side .legend{display:grid;grid-template-columns:1fr 1fr;gap:var(--s1) var(--s3);font-size:var(--fs-xs)}
+.xm-side .pal{grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--s2);padding:4px}
+.xm-side .sq{width:100%;max-width:3rem;height:auto;aspect-ratio:1}
+.xm-side .legend{display:grid;grid-template-columns:1fr;gap:var(--s1);font-size:var(--fs-sm)}
 .xm-side .legend .li{gap:var(--s2)}
 .xm-side .legend .sq.mini{width:1.125rem;height:1.125rem}
 .side-act{margin-top:auto;display:flex;flex-direction:column;gap:var(--s2)}
@@ -392,7 +402,6 @@ dialog{max-width:min(34rem,94vw)}
 .omr-row.blank .bub{border-style:dashed}
 .omr-row .ck{width:1rem;color:var(--ok);font-weight:700}
 .omr-row.done{opacity:.4}
-.omr-row:hover{background:#fff}
 /* large text: labels shorten instead of wrapping (container sizes are in rem, so they shrink as text grows) */
 .xm-top,.xm-foot,.xm-side{container-type:inline-size}
 .xm-top .row,.xm-foot{flex-wrap:nowrap}
@@ -403,3 +412,8 @@ dialog{max-width:min(34rem,94vw)}
 .xm-side{overflow:hidden}
 @container (max-width:17.5rem){.xm-side .legend{grid-template-columns:repeat(5,auto);justify-content:space-between}.xm-side .legend .grow{display:none}}
 body.exam #toast{top:4.25rem}
+.li.wrap{flex-wrap:wrap}
+.li.wrap>.col{min-width:16rem}
+#dlgText p+p{margin-top:var(--s2)}
+#dlgText p{margin-top:var(--s1)}
+.btn.plain{border-color:transparent;background:none;color:var(--blue);padding:0 var(--s2)}

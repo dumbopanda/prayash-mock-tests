@@ -47,7 +47,11 @@ export function parseCSV(t) {
 export const CSV_HEADER = 'subject,chapter,question,option_a,option_b,option_c,option_d,correct,solution,marks,image';
 
 export const cap = (s) => s[0].toUpperCase() + s.slice(1);
-export const when = (d) => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+// Date and time; the year only when it is not this year
+export const when = (d) => {
+  const t = new Date(d), y = t.getFullYear() !== new Date().getFullYear();
+  return t.toLocaleString([], { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}), hour: 'numeric', minute: '2-digit' });
+};
 // Stat tile; the result hero passes cls '' to drop the card frame
 export const stat = (k, v, sub = '', cls = 'card') => `<div class="${cls} stat"><span class="lbl">${k}</span><span class="v">${v} <span class="u">${sub}</span></span></div>`;
 
@@ -68,7 +72,7 @@ export function phaseOf(strategy, elapsedMs, durationMs, order = SUBJECTS) {
   if (strategy === 'two_pass') return stage([80, 120], ['Pass 1: answer, skip, mark', 'Pass 2: skipped and marked']);
   if (strategy === 'subject') {
     const idx = Math.min(3, Math.floor(m / 30));
-    return { idx, label: idx ? `${idx * 30} min used` : 'Subject by subject', lock: null, endsInMs: Infinity, final: true };
+    return { idx, label: idx ? `${idx * 30} min used` : 'One subject at a time', lock: null, endsInMs: Infinity, final: true };
   }
   return { idx: 0, label: 'Free mode', lock: null, endsInMs: Infinity, final: true };
 }
@@ -210,8 +214,9 @@ export function periodReport(attempts, rows, sinceMs) {
 }
 
 // Small line chart as an SVG string. points: [{ label, value }] with value 0-100. Styled by .trend in style.css.
-export function trendSvg(points) {
-  const w = 560, h = 150;
+// w: viewBox width; use a wider one for full-width cards so labels stay the same size
+export function trendSvg(points, w = 560) {
+  const h = 150;
   if (points.length < 2) return `<p class="muted">The trend appears after 2 tests.${points.length ? ` So far: ${points[0].value}%.` : ''}</p>`;
   const L = 24, R = 24, T = 22, B = 28, x = (i) => L + (i * (w - L - R)) / (points.length - 1), y = (v) => T + ((100 - v) / 100) * (h - T - B);
   return `<svg class="trend" viewBox="0 0 ${w} ${h}" role="img" aria-label="Score trend: ${esc(points.map((p) => `${p.label} ${p.value}%`).join(', '))}">

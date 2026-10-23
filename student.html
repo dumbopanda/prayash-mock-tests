@@ -13,7 +13,7 @@
 <body class="stu">
 <div id="app" class="shell"></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<div class="rotate" role="alert"><div class="card stack"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="6" width="20" height="36" rx="3"/><path d="M8 30a16 16 0 0 0 16 12M40 18A16 16 0 0 0 24 6"/></svg><b>Turn the tablet sideways</b><span class="muted">The tests work in landscape only.</span></div></div>
+<div class="rotate" role="alert"><div class="card stack"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="17" width="38" height="24" rx="3"/><path d="M14 10a14 12 0 0 1 20 0"/><path d="M30 6l4 4-5 2"/></svg><b>Turn the tablet sideways</b><span class="muted">The tests work in landscape only.</span></div></div>
 <dialog id="dlg"><form method="dialog" class="stack"><div id="dlgText"></div>
   <div class="row"><button class="btn" value="no">Go back</button><button class="btn dark" value="yes" id="dlgOk">OK</button></div></form></dialog>
 <script type="module">
@@ -91,20 +91,20 @@ async function home() {
   if (!me) { location.href = 'index.html'; return; }
   const [t, a] = await Promise.all([
     sb.from('tests').select('*').eq('published', true).order('start_at'),
-    sb.from('attempts').select('*').not('submitted_at', 'is', null).order('submitted_at'),
+    sb.rpc('get_progress'),
   ]);
   const saved = Object.keys(localStorage).filter((k) => k.startsWith('paper.')).map((k) => read(k).test);
   const tests = t.error ? saved : t.data;
-  const doneOf = (id) => (a.data ?? []).filter((x) => x.test_id === id);
+  const doneOf = (id) => (a.data?.attempts ?? []).filter((x) => x.test_id === id);
   app.innerHTML = `<div class="frame">${nav('home')}
     <div class="page"><h1>Your tests</h1><div class="tray"><span class="lbl">${plural(tests.length, 'test')}</span>
     <div class="card list">${tests.map((x) => {
       const d = doneOf(x.id), w = windowOf(x, Date.now()), open = Date.now() >= w.start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
       const go = !left ? '' : w.closed ? '<span class="chip">Window closed</span>' : open || read('paper.' + x.id) ? `<button class="btn dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Open'}</button>`
-        : `<span class="muted">Opens ${when(w.start - 15 * 60000)}</span>`;
+        : `<span class="muted">Opens ${when(w.start)}</span>`;
       return `<div class="li"><div class="col"><b>${esc(x.title)}</b>
         <span class="muted mono">${when(w.start)} · ${x.duration_min} min${w.lastStart ? ` · start by ${when(w.lastStart)}` : ''}${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
-        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last` : 'Score'} ${d.at(-1).score}</span><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
+        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last ` : ''}${d.at(-1).score} / ${d.at(-1).max}</span><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
     }).join('') || '<p class="muted li">No tests yet.</p>'}</div></div></div></div>`;
 }
 
@@ -114,7 +114,7 @@ app.addEventListener('click', async (e) => {
   const a = b.dataset.a;
   if (a === 'size') { size = setSize(size + 0.1 * b.dataset.d); return; }
   if (S && actions[a]) return inOmr() && !OMR_OK.includes(a) ? undefined : actions[a](b.dataset);
-  if (a === 'out') logout();
+  if (a === 'out') { if (await ask(navigator.onLine ? 'Sign out of this tablet?' : 'You are offline. Once signed out, you can sign in again only with internet. Sign out?', 'Sign out')) logout(); }
   else if (a === 'back') back();
   else if (a === 'open') go('start/' + b.dataset.id);
   else if (a === 'result') go(`result/${b.dataset.id}`);
@@ -165,13 +165,13 @@ function startScreen(paper) {
         ${order.length > 1 ? `<div class="tray"><span class="lbl">2 · Which subject first?</span><div class="card list">${order.map((s, i) => `<div class="li"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
           <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div></div>` : ''}
         <div class="tray"><span class="lbl">How it works</span><div class="card stack tight sm-text rules">
-          <div>Tap an option to answer; tap it again to clear. <b>Mark for review &amp; next</b> flags it to come back to; a marked answer still counts.</div>
+          <div>Tap an option to answer. <b>Clear</b> removes it. <b>Mark for review &amp; next</b> flags it to come back to; a marked answer still counts.</div>
           <div>Done with a subject early? Tap <b>Finish subject</b> or <b>Next</b> on the right.</div>
           <div>Correct +${marks}, wrong −${t.neg_marks}, skipped 0. ${guessTip(+String(marks).split('/')[0], +t.neg_marks)}</div>
           ${omr ? `<div><b>Last ${omr} min: OMR.</b> Answers lock and you copy them to the paper OMR sheet. Keep the sheet and a black pen ready.</div>` : ''}</div></div></div>
       <div class="stack"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
         <div class="t">${esc(t.title)}</div>
-        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min${omr ? ` (${t.duration_min - omr} questions + ${omr} OMR)` : ''}<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}${w().lastStart ? `<br>Start by ${clockTime(w().lastStart)}` : ''}</div>
+        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min${omr ? ` (${t.duration_min - omr} + ${omr} min OMR)` : ''}<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}${w().lastStart ? `<br>Start by ${clockTime(w().lastStart)}` : ''}</div>
         <div class="cd" id="cd" aria-live="polite"></div></div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
           <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
@@ -185,7 +185,8 @@ function startScreen(paper) {
     const now = Date.now() + paper.offset, x = w(), cd = $('#cd'), go = $('#go');
     const spent = t.max_attempts && (t.attempts_used ?? 0) >= t.max_attempts;
     if (cd) cd.textContent = spent ? 'All attempts used' : x.closed ? 'Window closed' : now < x.start ? 'Opens in ' + hms(x.start - now) : x.lastStart ? `Ready · ${hms(Math.max(0, x.lastStart - now))} left to start` : 'Ready';
-    if (go) go.disabled = now < x.start || x.closed || !pinned || !paper.questions.length || spent;
+    const ok = now >= x.start && !x.closed && paper.questions.length && !spent;
+    if (go) { go.disabled = !ok || !pinned; go.textContent = ok && !pinned ? 'Tick “Screen pinning is on” first' : 'Start test'; }
   };
   app.onchange = (e) => { if (e.target.id === 'pin') { pinned = e.target.checked; tickStart(); } };
   startScreen.handle = async (a, d) => {
@@ -314,7 +315,7 @@ function checkPhase(initial) {
   const p = phase();
   if (p.idx === S.lastIdx) return;
   S.lastIdx = p.idx;
-  if (S.strategy !== 'free' && !(S.strategy === 'subject' && p.idx === 0)) toast(S.strategy === 'subject' ? p.label : `Now: ${p.label}`);
+  if (!initial && S.strategy !== 'free') toast(S.strategy === 'subject' ? p.label : `Now: ${p.label}`);
   const b = S.strategy === 'timebox' ? box() : null;
   if (b && qOf(S.cur).subject !== b) { S.cur = firstOpen(b); if (!S.visited.includes(S.cur)) S.visited.push(S.cur); } // a time box moves her on
   persist();
@@ -347,7 +348,7 @@ function step(dir) {
 }
 
 const actions = {
-  pick: (d) => { if (S.answers[S.cur] === +d.i) delete S.answers[S.cur]; else S.answers[S.cur] = +d.i; persist(); render(); }, // tap the chosen option again to clear it
+  pick: (d) => { S.answers[S.cur] = +d.i; persist(); render(); }, // Clear removes an answer; a second tap never does, so a stray touch cannot lose it
   save: () => step(1),
   markNext: () => { if (!S.marked.includes(S.cur)) S.marked.push(S.cur); step(1); }, // a mark is only a flag: it never blocks moving on
   unmark: () => { S.marked = S.marked.filter((x) => x !== S.cur); persist(); render(); },
@@ -361,9 +362,9 @@ const actions = {
   next: async () => {
     const n = nextOf(); if (!n) return;
     const l = bySubj(n.from), left = l.filter((q) => S.answers[q.id] == null).length, mk = l.filter((q) => S.marked.includes(q.id)).length;
-    const sum = `${cap(n.from)}: ${l.length - left} answered, ${left} not answered${mk ? `, ${mk} marked` : ''}.`;
-    if (n.lock === 'final' && !(await ask(`${sum} Finish ${cap(n.from)} and go to ${cap(n.to)}? You cannot come back to ${cap(n.from)}.`, `Go to ${cap(n.to)}`))) return;
-    if (n.lock === 'box' && !(await ask(`${sum} Finish ${cap(n.from)} now? ${n.to ? `${cap(n.to)} starts now and gets the time you save.` : 'Review time starts now: all subjects open.'} You can return to ${cap(n.from)} in the review time at the end.`, n.to ? `Go to ${cap(n.to)}` : 'Start review'))) return;
+    const dlg = (what) => `<h2>Finish ${cap(n.from)}?</h2><p><b>${l.length - left}</b> answered · <b${left ? ' class="err"' : ''}>${left}</b> not answered${mk ? ` · <b>${mk}</b> marked` : ''}</p><p class="muted">${what}</p>`;
+    if (n.lock === 'final' && !(await ask('', `Go to ${cap(n.to)}`, dlg(`You cannot come back to ${cap(n.from)}.`)))) return;
+    if (n.lock === 'box' && !(await ask('', n.to ? `Go to ${cap(n.to)}` : 'Start review', dlg(`${n.to ? `${cap(n.to)} starts now and gets the time you save.` : 'Review time starts now: all subjects open.'} You can return to ${cap(n.from)} in the review time.`)))) return;
     if (n.lock === 'final') S.subjIdx++;
     if (n.lock === 'box') S.done.push(n.from);
     if (n.lock === 'box' && !n.to) toast('Review time: all subjects open');
@@ -377,8 +378,8 @@ const actions = {
   full: async () => { await fullscreen(); render(); },
   submit: async () => {
     const c = stateCounts(S.qs, S.answers, S.marked, S.visited), left = S.qs.filter((q) => S.answers[q.id] == null).length;
-    const tl = S.durationMs - elapsed(), cols = ['A', 'AM', 'M', 'S', 'V'];
-    const html = `<h2>Submit the test?</h2><p class="muted">${hms(tl)} left. ${left ? `${plural(left, 'question')} not answered.` : 'All questions answered.'} You cannot change answers after this.</p>
+    const omr = inOmr(), tl = omr ? S.durationMs - elapsed() : qMs() - elapsed(), cols = ['A', 'AM', 'M', 'S', 'V'];
+    const html = `<h2>Submit the test?</h2><p class="muted">${hms(tl)} left${S.omrMs && !omr ? ' before OMR' : ''}. ${left ? `${plural(left, 'question')} not answered.` : 'All questions answered.'} You cannot change answers after this.</p>
       <div class="tbl"><table><tr><th>Subject</th>${cols.map((k) => `<th title="${STATE[k]}"><span class="sq mini ${k}" aria-hidden="true"></span><span class="vh">${STATE[k]}</span></th>`).join('')}</tr>
       ${S.order.map((s) => `<tr><td>${cap(s)}</td>${cols.map((k) => `<td class="mono">${c[s]?.[k] ?? 0}</td>`).join('')}</tr>`).join('')}</table></div>
       <p class="muted sm-text">${cols.map((k) => `<span class="row tight inl"><span class="sq mini ${k}" aria-hidden="true"></span>${STATE[k]}</span>`).join(' ')}</p>`;
@@ -388,7 +389,7 @@ const actions = {
 };
 const OMR_OK = ['copied', 'submit', 'full', 'retry']; // the only taps that work once answers lock
 
-const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${netPill()}${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
+const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
 const fullGate = () => (isFull() ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
 
 function render() {
@@ -490,33 +491,28 @@ function showResult({ attempt: a, test, questions: qs, attempts = [] }) {
   const FILTERS = [['all', 'All', qrows.length], ['W', 'Wrong', a.wrong], ['S', 'Skipped', a.skipped], ['C', 'Correct', a.correct], ['M', 'Marked', qrows.filter((q) => marked.includes(q.id)).length]];
   const left = (test?.max_attempts ?? 1) - attempts.length, prevA = attempts.find((x) => x.attempt_no === a.attempt_no - 1);
   app.innerHTML = `<div class="frame"><div class="top">${backBtn()}<span class="brand">${esc(test?.title ?? 'Result')}</span><span class="chip">${stratName(a.strategy)}</span><span class="grow"></span>${sizeCtl()}<button class="btn sm" data-a="progress">Progress</button></div>
-    <div class="page">${attempts.length > 1 || left > 0 ? `<div class="row tight" role="group" aria-label="Attempts">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" aria-pressed="${x.id === a.id}" data-a="att" data-id="${test.id}" data-att="${x.id}">Attempt ${x.attempt_no} <span class="mono">${x.score}</span></button>`).join('')}
+    <div class="page">${attempts.length > 1 || left > 0 ? `<div class="row tight" role="group" aria-label="Attempts">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" aria-pressed="${x.id === a.id}" data-a="att" data-id="${test.id}" data-att="${x.id}">Attempt ${x.attempt_no} · <span class="mono">${x.score}</span></button>`).join('')}
       <span class="grow"></span>${left > 0 && test?.id ? `<button class="btn dark" data-a="open" data-id="${test.id}">Retake · ${plural(left, 'attempt')} left</button>` : ''}</div>` : ''}
     <div class="hero"><div class="stat"><span class="lbl">Score</span><span class="v">${a.score} <span class="u">/ ${total}</span></span><span class="delta" id="delta">${mine}%</span></div>
-      <div class="stats">${stat('✓ Correct', a.correct, '', '')}${stat('✗ Wrong', a.wrong, `−${a.wrong * neg} marks`, '')}${stat('– Skipped', a.skipped, '', '')}${stat('Accuracy', tried ? Math.round((a.correct / tried) * 100) + '%' : '–', `${tried} of ${qs.length} tried`, '')}${stat('Time used', mmss(used).replace(/:\d+$/, '') + ' min', '', '')}</div></div>
+      <div class="stats">${stat('✓ Correct', a.correct, '', '')}${stat('✗ Wrong', a.wrong, a.wrong ? `−${a.wrong * neg} marks` : '', '')}${stat('– Skipped', a.skipped, '', '')}${stat('Accuracy', tried ? Math.round((a.correct / tried) * 100) + '%' : '–', `${tried} tried`, '')}${stat('Time used', mmss(used).replace(/:\d+$/, '') + ' min', '', '')}</div></div>
     <div class="tray"><span class="lbl">Every question</span><div class="card stack tight">${rows.map((r) => `<div class="row"><span class="abbr">${r.subject.slice(0, 3).toUpperCase()}</span><div class="sqs">${r.l.map((q) => `<i class="${verdict(q)}" title="Q${q.position} ${{ C: 'correct', W: 'wrong', S: 'skipped' }[verdict(q)]}"></i>`).join('')}</div></div>`).join('')}
       <div class="row muted"><span class="sqs"><i class="C"></i></span>Correct<span class="sqs"><i class="W"></i></span>Wrong<span class="sqs"><i></i></span>Skipped</div></div></div>
     <div class="split even"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Score</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
       ${rows.map((r) => `<tr><td>${cap(r.subject)}</td><td class="mono">${r.score} / ${r.max}</td><td class="mono">${r.acc == null ? '–' : r.acc + '%'}</td><td class="mono">${mmss(r.secs)}</td><td class="mono">${mmss(r.perQ)}</td></tr>`).join('')}</table></div></div>
     <div class="tray"><span class="lbl">How you used time · target 2 min a question</span><div class="card list">${Object.entries(KIND).filter(([k]) => kinds[k]).map(([k, n]) => `<div class="li"><span class="kind ${k}" aria-hidden="true"></span><span class="grow">${n}</span><span class="num-r">${kinds[k]}</span></div>`).join('')}
       ${kinds.wrong_fast ? `<p class="muted li">${plural(kinds.wrong_fast, 'question')} answered wrong in under 36 s. Slow down on these: each cost ${4 + +neg} marks against a correct answer.</p>` : ''}</div></div></div>
-    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">Q${q.position}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span>${verdictChip(verdict(q))}<span class="mono">${mmss(q.secs)}</span></div>`).join('')}</div></div>` : ''}
+    ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">Q${q.position}</span><span class="grow clip">${fmt(line(q.body))}</span>${verdictChip(verdict(q))}<span class="mono">${mmss(q.secs)}</span></div>`).join('')}</div></div>` : ''}
     ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise from this test</span><div class="card list">${weakHere.map(chapterRow).join('')}</div></div>` : ''}
     <div class="tray"><div class="row tray-head"><span class="lbl">Review solutions</span><span class="grow"></span>${RQ.length ? `<button class="btn sm dark" data-a="rpractice">Practise ${RQ.length} wrong and skipped</button>` : ''}</div>
       <div class="row tight filt" role="group" aria-label="Show">${FILTERS.map(([k, n, c], i) => `<button class="tab ${i ? '' : 'on'}" data-a="rf" data-f="${k}" aria-pressed="${!i}">${n} <span class="mono">${c}</span></button>`).join('')}</div>
-      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">Q${q.position}</span><span class="grow">${fmt(q.body.slice(0, 90))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div></div></div>`;
-  if (prevA) { // change vs her previous attempt at this paper
-    const d = mine - Math.round((prevA.score / total) * 100), el = $('#delta');
-    el.textContent = `${mine}% · ${d >= 0 ? '+' : '−'}${Math.abs(d)} vs attempt ${prevA.attempt_no}`; el.classList.add(d >= 0 ? 'up' : 'down');
-    return;
-  }
+      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">Q${q.position}</span><span class="grow clip">${fmt(line(q.body))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div></div></div>`;
+  reviewFilter(a.wrong ? 'W' : 'all'); // open on what needs revising
+  const delta = (d, vs) => { const el = $('#delta'); if (!el) return; el.textContent = `${mine}% · ${d ? `${d > 0 ? '+' : '−'}${Math.abs(d)} vs ${vs}` : `same as ${vs}`}`; if (d) el.classList.add(d > 0 ? 'up' : 'down'); };
+  if (prevA) return delta(mine - Math.round((prevA.score / total) * 100), `attempt ${prevA.attempt_no}`); // change vs her previous attempt at this paper
   // change vs the previous test (needs internet; the result shows fine without it)
   sb.rpc('get_progress').then(({ data }) => {
-    const at = data?.attempts ?? [], i = at.findIndex((x) => x.id === a.id), prev = i > 0 ? at[i - 1] : null, el = $('#delta');
-    if (!prev || !el) return;
-    const d = mine - pct(prev);
-    el.textContent = `${mine}% · ${d >= 0 ? '+' : '−'}${Math.abs(d)} vs previous test`;
-    el.classList.add(d >= 0 ? 'up' : 'down');
+    const at = data?.attempts ?? [], i = at.findIndex((x) => x.id === a.id);
+    if (i > 0) delta(mine - pct(at[i - 1]), 'previous test');
   }).catch(() => {});
 }
 function reviewFilter(f) {
@@ -525,11 +521,12 @@ function reviewFilter(f) {
 }
 
 /* ================= Progress, mistake notebook, practice ================= */
-const airText = () => (navigator.onLine ? 'Turn on airplane mode, then tap Start' : '✓ Airplane mode is on');
+const airText = () => (navigator.onLine ? '○ Turn on airplane mode' : '✓ Airplane mode is on');
 const syncNet = () => { document.querySelectorAll('.net').forEach((e) => (e.outerHTML = netPill())); const a = $('#air'); if (a) a.textContent = airText(); };
 addEventListener('online', syncNet); addEventListener('offline', syncNet);
 const blocks = (n) => `<span class="bar" role="img" aria-label="${Math.round(n)}%">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(n / 10) ? 'on' : ''}"></i>`).join('')}</span>`;
 const chapterRow = (c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></div>`;
+const line = (t) => t.replace(/\s*\n\s*/g, ' '); // a question on one line, for lists
 const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
 const verdictChip = (v) => `<span class="chip ${v === 'C' ? 'ok' : v === 'W' ? 'bad' : ''}">${{ C: '✓ Correct', W: '✗ Wrong', S: '– Skipped' }[v]}</span>`;
 const optLine = (o, j, correct, chosen) => `<div class="optline ${j === correct ? 'right' : chosen === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === correct ? '<span>✓ correct</span>' : chosen === j ? '<span>✗ your answer</span>' : ''}</div>`;
@@ -550,7 +547,7 @@ async function progress() {
     const last = at.at(-1), prev = at.at(-2), diff = prev ? pct(last) - pct(prev) : null;
     const subs = subjectStats(d.answers, at).filter((s) => s.total), weak = chapterStats(d.answers).filter((c) => c.acc < 1).slice(0, 8), strat = strategyStats(at);
     body = `<div class="stats">${stat('Tests taken', at.length)}${stat('Latest', pct(last) + '%', diff == null ? '' : (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' vs previous')}${stat('Best', Math.max(...at.map(pct)) + '%')}</div>
-      <div class="tray"><span class="lbl">Score trend</span><div class="card">${trendSvg(at.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}</div></div>
+      <div class="tray"><span class="lbl">Score trend</span><div class="card">${trendSvg(at.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })), 1000)}</div></div>
       <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Accuracy</th><th>Per question</th><th>Right</th><th>Wrong</th><th>Skipped</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
         <div class="tray"><span class="lbl">Strategies</span><div class="card list">${strat.map((s) => `<div class="li"><div class="col"><span>${stratName(s.strategy)}</span><span class="muted">${plural(s.n, 'test')}</span></div>${blocks(s.avg)}<span class="num-r">${s.avg}%</span></div>`).join('')}
@@ -567,7 +564,7 @@ async function notebook(filter = '', data) {
   const chip = (s, n) => `<button class="tab ${filter === s ? 'on' : ''}" aria-pressed="${filter === s}" data-a="nbf" data-s="${s}">${n} <span class="mono">${(s ? all.filter((r) => r.subject === s) : all).length}</span></button>`;
   app.innerHTML = `<div class="frame">${nav('notebook')}<div class="page"><div class="head"><h1>Mistake notebook</h1><span class="grow"></span><button class="btn dark" data-a="practice" ${NB.length ? '' : 'disabled'}>Practise ${NB.length}</button></div>
     <div class="row tight">${chip('', 'All')}${SUBJECTS.map((s) => chip(s, cap(s))).join('')}</div>
-    <div class="tray"><span class="lbl">Wrong or skipped last time</span><div class="card list">${NB.map((r) => `<details class="rv"><summary>${verdictChip(r.chosen == null ? 'S' : 'W')}<span class="mono muted">${cap(r.subject.slice(0, 3))}</span><span>${fmt(r.body.slice(0, 90))}</span></summary>${qBlock(r, r.chosen)}</details>`).join('') || '<p class="muted li">Nothing to revise. Mistakes from your tests appear here.</p>'}</div></div></div></div>`;
+    <div class="tray"><span class="lbl">Wrong or skipped last time</span><div class="card list">${NB.map((r) => `<details class="rv"><summary>${verdictChip(r.chosen == null ? 'S' : 'W')}<span class="mono muted">${cap(r.subject.slice(0, 3))}</span><span class="grow clip">${fmt(line(r.body))}</span></summary>${qBlock(r, r.chosen)}</details>`).join('') || '<p class="muted li">Nothing to revise. Mistakes from your tests appear here.</p>'}</div></div></div></div>`;
 }
 
 // Untimed retry with instant feedback; a correct answer clears the question from the notebook

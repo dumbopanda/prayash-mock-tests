@@ -191,7 +191,7 @@ async function vQuestions() {
       ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td><td>${cap(r.subject)}</td><td>${esc(r.chapter) || '<span class="muted">–</span>'}</td>
         <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}${r.image_url ? ' <span class="chip">Figure</span>' : ''}</td>
         <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono">${r.test_questions.length || '–'}</td>
-        <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button><button class="btn sm danger" data-d="${r.id}" ${r.test_questions.length ? 'disabled title="Used in a test"' : ''}>Delete</button></td></tr>`).join('')
+        <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>${r.test_questions.length ? '' : `<button class="btn sm danger" data-d="${r.id}">Delete</button>`}</td></tr>`).join('')
         || '<tr><td colspan="7" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
       ${l.length > F.limit ? `<div class="row li"><span class="muted">Showing ${F.limit} of ${l.length}.</span><button class="btn sm" id="more">Show all</button></div>` : ''}`;
     $('#more')?.addEventListener('click', () => { F.limit = Infinity; table(); });
@@ -358,6 +358,8 @@ function vImport() {
     if (bank.length && newCh.length) r.warnings.push(`New chapter names: ${newCh.join('; ')}. Check they are spelt as in earlier papers.`);
     const n = SUBJECTS.map((s) => r.ok.filter((q) => q.subject === s).length);
     if (n.some((c) => c !== 15)) r.warnings.push(`Subjects have ${n.join(' / ')} questions (P / C / M / B), not 15 each.`);
+    const rowNo = (x) => +(/^Row (\d+)/.exec(x)?.[1] ?? 1e9);
+    r.errors.sort((x, y) => rowNo(x) - rowNo(y)); r.warnings.sort((x, y) => rowNo(x) - rowNo(y));
     R = r;
     const fresh = r.ok.filter((q) => !q.existing).length, urls = [];
     const thumb = (q) => { const f = q.image && files.get(q.image.toLowerCase()); if (!f) return q.image ? `<span class="mono muted">${esc(q.image)}</span>` : ''; const u = URL.createObjectURL(f); urls.push(u); return `<img class="thumb" src="${u}" alt="${esc(q.image)}">`; };
@@ -434,15 +436,14 @@ async function vTests() {
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
     <div class="head"><div class="title"><h1>Tests</h1><span class="muted">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
-    <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card tbl"><table>
-      <tr><th>Title</th><th>Opens</th><th>P / C / M / B</th><th>Marking</th><th>Status</th><th>Taken</th><th></th></tr>
-      ${data.map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}${t.end_at ? `<br><span class="muted">closes ${when(t.end_at)}</span>` : ''}</td>
-        <td class="mono">${counts(t).join(' / ')}</td><td class="mono">+${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks} · ${t.duration_min}m${t.omr_min ? ` · OMR ${t.omr_min}m` : ''}</td>
-        <td>${statusChip(t)}</td><td class="mono">${t.attempts.filter((a) => a.submitted_at).length || '–'}${t.attempts.some((a) => !a.submitted_at) ? ' <span class="chip">in progress</span>' : ''}</td>
-        <td class="actions"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
+    <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card list">
+      ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at).length;
+        return `<div class="li wrap"><div class="col"><span class="row tight"><b>${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
+        <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
+        <span class="row tight"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm ${t.published ? '' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
-        <button class="btn sm danger" data-d="${t.id}" ${t.attempts.length ? 'disabled title="She has attempts on this test. Unpublish it instead; her results stay."' : ''}>Delete</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No tests yet. Import a paper to create one.</td></tr>'}
-    </table></div></div>`;
+        ${t.attempts.length ? '' : `<button class="btn sm danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted li">No tests yet. Import a paper to create one.</p>'}
+    </div></div>`;
   view.onclick = async (e) => {
     const b = e.target.closest('[data-v],[data-e],[data-p],[data-d],#new'); if (!b) return;
     if (b.id === 'new') return go('testform');
@@ -519,6 +520,7 @@ async function vTestForm(t) {
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
   view.innerHTML = `
     <div class="head"><h1>${t ? 'Edit' : 'New'} test</h1></div>
+    ${attempts ? '<p class="note">She has taken this test, so its questions and negative marks are locked. Title, time, attempts and publishing can still change.</p>' : ''}
     <div class="tray"><span class="lbl">Settings</span><div class="card stack">
       <div class="row">
         <div class="col x2"><label class="lbl" for="title">Title</label><input id="title" class="field" value="${esc(t?.title ?? '')}"></div>
@@ -547,8 +549,8 @@ async function vTestForm(t) {
       <div class="card"><div class="row top-align">${SUBJECTS.map((s) => `
       <div class="col pickcol"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
         <div class="list pick">${qs.filter((x) => x.subject === s).map((x) => `
-          <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div></div></div>
-    <div class="err" id="msg" role="alert">${attempts ? 'She has taken this test, so its questions and marking are locked. You can still change the title, time and publishing.' : ''}</div>
+          <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}${x.body.length > 70 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div></div></div>
+    <div class="err" id="msg" role="alert"></div>
     <div class="row"><button class="btn dark" id="save">Save test</button><button class="btn" id="back">Cancel</button></div>`;
 
   const count = () => SUBJECTS.forEach((s) => ($(`#n-${s}`).textContent = view.querySelectorAll(`.q[data-s=${s}]:checked`).length));
@@ -633,7 +635,7 @@ async function vResults(sid) {
       const subs = subjectStats(rows, [a]).filter((s) => s.total).map((s) => ({ ...s, score: rows.filter((r) => r.subject === s.subject && r.chosen === r.correct).reduce((n, r) => n + r.marks, 0) - s.wrong * neg, max: rows.filter((r) => r.subject === s.subject).reduce((n, r) => n + r.marks, 0) }));
       const active = Object.values(a.times || {}).reduce((x, y) => x + y, 0);
       const prev = d.attempts.find((x) => x.test_id === a.test_id && x.attempt_no === a.attempt_no - 1);
-      return `<details class="rv"><summary><b>${esc(a.title)}</b>${a.attempt_no ? `<span class="chip">Attempt ${a.attempt_no}</span>` : ''}<span class="mono">${a.score} / ${a.max} · ${pct(a)}%${prev ? ` (${a.score - prev.score >= 0 ? '+' : ''}${a.score - prev.score} vs attempt ${prev.attempt_no})` : ''}</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span>
+      return `<details class="rv"><summary><b>${esc(a.title)}</b>${a.attempt_no ? `<span class="chip">Attempt ${a.attempt_no}</span>` : ''}<span class="mono">${a.score} / ${a.max} · ${pct(a)}%${prev ? ` (${a.score === prev.score ? 'same as' : `${a.score > prev.score ? '+' : '−'}${Math.abs(a.score - prev.score)} vs`} attempt ${prev.attempt_no})` : ''}</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span>
         <span class="chip ${(a.flags || []).length ? 'bad' : 'ok'}">Flags: ${esc(flagLine(a))}</span></summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
@@ -677,7 +679,7 @@ async function vReport(sid, days = 7) {
       <select id="days" class="field auto noprint" aria-label="Period">${[7, 14, 30].map((n) => `<option value="${n}" ${n === days ? 'selected' : ''}>Last ${n} days</option>`).join('')}</select>
       <button class="btn dark noprint" id="print">Print / Save as PDF</button></div>
     ${rep.tests ? `<div class="stats">${stat('Tests taken', rep.tests)}${stat('Average', rep.avg + '%')}${stat('Best', rep.best + '%')}${stat('Flags', rep.flags.fullscreen_exit + rep.flags.tab_hidden, `${plural(rep.flags.fullscreen_exit, 'exit')} · ${plural(rep.flags.tab_hidden, 'switch', 'switches')}`)}</div>
-      <div class="tray"><span class="lbl">Scores</span><div class="card">${trendSvg(rep.attempts.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}</div></div>
+      <div class="tray"><span class="lbl">Scores</span><div class="card">${trendSvg(rep.attempts.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })), 1000)}</div></div>
       <div class="tray"><span class="lbl">Summary</span><div class="card">${rep.strongest ? `Strongest subject: <b>${cap(rep.strongest.subject)}</b> (${rep.strongest.acc}% accuracy). ` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `Weakest: <b>${cap(rep.weakest.subject)}</b> (${rep.weakest.acc}%). ` : ''}${rep.strategies[0] ? `Best strategy so far: <b>${esc(stratName(rep.strategies[0].strategy))}</b> (${rep.strategies[0].avg}% average).` : ''}</div></div>
       <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Accuracy</th><th>Per question</th><th>Right</th><th>Wrong</th><th>Skipped</th></tr>
         ${rep.subjects.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
