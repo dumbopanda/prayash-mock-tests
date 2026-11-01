@@ -447,3 +447,5 @@ body.exam #toast{top:4.25rem}
 .st .ordi .btn{min-height:2rem;padding:0 0.5rem}
 .st .keys{padding:var(--s2) var(--s3) var(--s3);gap:var(--s3)}
 .st>.stack{gap:var(--s3)}
+.adm.stu.mini{--sw:3.75rem}
+@media(max-width:900px){.adm.stu.mini .t{display:none}.adm.stu.mini .nav-i{justify-content:center;padding:0}.adm.stu.mini .nav-g>.lbl{display:none}}

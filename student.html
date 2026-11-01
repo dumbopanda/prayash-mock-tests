@@ -88,9 +88,10 @@ const netPill = () => `<span class="pill net ${navigator.onLine ? 'on' : ''}">${
 const IC = { tests: '<rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M6 8h4M6 11h3"/>', progress: '<path d="M3 13V8M8 13V3M13 13V6"/>', notebook: '<path d="M4 2h8v12H4zM6.5 5.5h3M6.5 8h3"/>', out: '<path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6"/>' };
 const ni = (a, n, i, on) => `<button class="nav-i ${on ? 'on' : ''}" data-a="${a}"${on ? ' aria-current="page"' : ''}><svg viewBox="0 0 16 16" aria-hidden="true">${IC[i]}</svg><span class="t">${n}</span></button>`;
 // Every signed-in screen: menu on the left (sign out at its foot), page name + online + A−/A+ on top
-const shell = (on, title, body, { back = false, extra = '' } = {}) => `<div class="adm stu"><aside class="side"><div class="brand"><span class="logo">M</span><span class="t">Mock Tests</span></div>
+let mini = read('ui.mini') === 1;
+const shell = (on, title, body, { back = false, extra = '' } = {}) => `<div class="adm stu ${mini ? 'mini' : ''}"><aside class="side"><div class="brand"><span class="logo">M</span><span class="t">Mock Tests</span></div>
   <nav aria-label="Menu"><div class="nav-g">${ni('home', 'Tests', 'tests', on === 'home')}${ni('progress', 'Progress', 'progress', on === 'progress')}${ni('notebook', 'Mistakes', 'notebook', on === 'notebook')}</div></nav>
-  <div class="side-foot">${ni('out', 'Sign out', 'out')}</div></aside>
+  <div class="side-foot">${ni('out', 'Sign out', 'out')}<button class="nav-i" data-a="col" title="Collapse menu"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M6 3v10"/></svg><span class="t">Collapse</span></button></div></aside>
   <div class="shell-r"><header class="topbar">${back ? backBtn() : ''}<b class="ttl">${esc(title)}</b>${extra}<span class="grow"></span>${netPill()}${sizeCtl()}</header>
   <main class="main"><div class="page">${body}</div></main></div></div>`;
 
@@ -123,6 +124,7 @@ app.addEventListener('click', async (e) => {
   if (S) armBack();
   const b = e.target.closest('[data-a]'); if (!b) return;
   const a = b.dataset.a;
+  if (a === 'col') { mini = !mini; write('ui.mini', mini ? 1 : 0); document.querySelector('.adm')?.classList.toggle('mini', mini); return; }
   if (a === 'size') { size = setSize(size + 0.1 * b.dataset.d); return; }
   if (S && actions[a]) return inOmr() && !OMR_OK.includes(a) ? undefined : actions[a](b.dataset);
   if (a === 'out') { if (await ask(navigator.onLine ? 'Sign out of this tablet?' : 'You are offline. Once signed out, you can sign in again only with internet. Sign out?', 'Sign out')) logout(); }
