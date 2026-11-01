@@ -615,7 +615,7 @@ async function vTestForm(t) {
 }
 
 /* ---------- Results and report ---------- */
-const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off' };
+const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off', abandoned: 'Started but never submitted' };
 
 async function studentData(sid) {
   const { data: studs } = await sb.from('profiles').select('id,name').eq('role', 'student');

@@ -455,7 +455,9 @@ async function upload() {
   if (S.busy) return;
   S.busy = true; render();
   // ponytail: the attempt row is created here too, so an offline start still works; its started_at is then the upload time
-  const st = await rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy, p_id: S.attemptId });
+  // p_started_at: the tablet's own start time, so an offline start is judged by when it began, not when it uploads
+  const st = await rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy, p_id: S.attemptId, p_started_at: new Date(S.startedAt).toISOString() });
+  if (st.error?.code) { S.busy = false; S.err = st.error.message; persist(); return render(); } // a server rule said no; the answers stay on the tablet
   if (st.data?.id) S.attemptId = st.data.id;
   const r = await rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags, p_id: S.attemptId });
   S.busy = false;
