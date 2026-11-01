@@ -75,6 +75,8 @@ addEventListener('popstate', () => {
 async function route() {
   if (S) return;
   clearInterval(startTimer);
+  scrollTo(0, 0); // every screen opens at its top
+  if (!app.firstChild) app.innerHTML = '<div class="center"><p class="muted">Loading…</p></div>';
   const [v, a, b] = here();
   if (['start', 'result', 'progress', 'mistakes', 'practice'].includes(v)) student(); // these screens exist only for students
   if (v === 'start' && a) return openTest(a);
@@ -109,15 +111,19 @@ async function home() {
   const saved = Object.keys(localStorage).filter((k) => k.startsWith('paper.')).map((k) => read(k).test);
   const tests = (t.error ? saved : t.data).sort((x, y) => Date.parse(y.start_at) - Date.parse(x.start_at)); // newest first
   const doneOf = (id) => (a.data?.attempts ?? []).filter((x) => x.test_id === id);
-  app.innerHTML = shell('home', 'Your tests', `<div class="tray"><span class="lbl">${plural(tests.length, 'test')}</span>
-    <div class="card list">${tests.map((x) => {
-      const d = doneOf(x.id), w = windowOf(x, Date.now()), open = Date.now() >= w.start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
-      const go = !left ? '' : w.closed ? '<span class="chip">Window closed</span>' : open || read('paper.' + x.id) ? `<button class="btn dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Open'}</button>`
-        : `<span class="muted">Opens ${when(w.start)}</span>`;
-      return `<div class="li"><div class="col"><b>${esc(x.title)}</b>
-        <span class="muted mono">${when(w.start)} · ${x.duration_min} min${w.lastStart ? ` · start by ${when(w.lastStart)}` : ''}${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
-        ${d.length ? `<span class="chip ok">${d.length > 1 ? `Best ${Math.max(...d.map((z) => z.score))} · Last ` : ''}${d.at(-1).score} / ${d.at(-1).max}</span><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${go}</div>`;
-    }).join('') || '<p class="muted li">No tests yet.</p>'}</div></div>`);
+  const row = (x) => {
+    const d = doneOf(x.id), w = windowOf(x, Date.now()), open = Date.now() >= w.start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
+    const act = !left ? '' : w.closed ? '<span class="chip">Closed</span>' : open || read('paper.' + x.id) ? `<button class="btn dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Start'}</button>`
+      : `<span class="chip">Opens ${when(w.start)}</span>`;
+    const best = d.length ? Math.max(...d.map((z) => z.score)) : 0;
+    return `<div class="li trow"><div class="col"><b class="it">${esc(x.title)}</b>
+      <span class="meta">${when(w.start)} · ${x.duration_min} min${w.lastStart && !w.closed ? ` · start by ${when(w.lastStart)}` : ''}${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
+      ${d.length ? `<div class="score"><span class="lbl">${d.length > 1 ? 'Best' : 'Score'}</span><b class="mono">${best} / ${d.at(-1).max}</b></div><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${act}</div>`;
+  };
+  const past = (x) => windowOf(x, Date.now()).closed || doneOf(x.id).length >= (x.max_attempts ?? 1);
+  const now = tests.filter((x) => !past(x)), old = tests.filter(past);
+  const sec = (title, list) => `<div class="tray"><div class="tray-head row"><span class="lbl">${title}</span><span class="count">${list.length}</span></div><div class="card list">${list.map(row).join('')}</div></div>`;
+  app.innerHTML = shell('home', 'Your tests', (now.length ? sec('Open now', now) : '<div class="card"><p class="muted">No test is open right now.</p></div>') + (old.length ? sec('Past tests', old) : ''));
 }
 
 app.addEventListener('click', async (e) => {
@@ -435,8 +441,8 @@ function render() {
       <div class="side-h"><b>${cap(q.subject)}</b><span class="muted">${list.filter((x) => S.answers[x.id] != null).length} of ${list.length} answered</span></div>
       <div class="side-mid"><div class="pal">${list.map((x) => `<button class="sq ${status(x)} ${x.id === S.cur ? 'cur' : ''}" data-a="jump" data-id="${x.id}" aria-label="Question ${no(x)}, ${STATE[status(x)]}"${x.id === S.cur ? ' aria-current="true"' : ''}>${no(x)}</button>`).join('')}</div>
       <div class="legend">${Object.entries(STATE).map(([k, nm]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${nm}</span><span class="mono">${count(k)}</span></div>`).join('')}</div></div>
-      <div class="side-act">${n ? `<button class="btn ${S.omrMs ? '' : 'dark'}" data-a="next">${nextLbl}</button>` : ''}
-        ${S.omrMs ? '<button class="btn dark" data-a="toOmr">Go to OMR sheet</button>' : '<button class="btn danger" data-a="submit">Submit test</button>'}</div></aside></div>
+      <div class="side-act">${n ? `<button class="btn" data-a="next">${nextLbl}</button>` : ''}
+        ${S.omrMs ? '<button class="btn quiet" data-a="toOmr">Go to OMR sheet</button>' : '<button class="btn danger" data-a="submit">Submit test</button>'}</div></aside></div>
     ${fullGate()}`;
   updateClock();
 }
@@ -448,7 +454,7 @@ function renderOmr() {
   app.innerHTML = `<div class="xm omr">
     ${examTop('<span class="chip mark-chip">OMR time · answers locked</span>')}
     <main class="omr-main"><p class="sm-text">Copy each answer to the paper OMR sheet. Check the question number first. Leave blank rows blank. Tap a row when it is filled.</p>
-      <div class="omr-cols" style="--rows:${rows}">${cols.map((c) => `<div class="omr-col"><span class="lbl">${c.subject.slice(0, 3)}</span>${c.items.map(({ n, q }) => {
+      <div class="omr-cols" style="--rows:${rows}">${cols.map((c) => `<div class="omr-col"><b class="omr-h">${cap(c.subject)}</b>${c.items.map(({ n, q }) => {
         const a = S.answers[q.id], done = S.copied.includes(q.id);
         return `<button class="omr-row ${a == null ? 'blank' : ''} ${done ? 'done' : ''} ${n % 5 === 0 ? 'five' : ''}" data-a="copied" data-id="${q.id}" aria-pressed="${done}" aria-label="Question ${n}: ${a == null ? 'blank' : 'ABCD'[a]}${done ? ', copied' : ''}"><span class="n">${n}</span>${[0, 1, 2, 3].map((i) => `<span class="bub ${a === i ? 'on' : ''}">${'ABCD'[i]}</span>`).join('')}<span class="ck" aria-hidden="true">${done ? '✓' : ''}</span></button>`;
       }).join('')}</div>`).join('')}</div></main>
@@ -532,11 +538,10 @@ function showResult({ attempt: a, test, questions: qs, attempts = [] }) {
     <div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table class="aln"><tr><th>Subject</th><th>Score</th><th>Accuracy</th><th>Correct</th><th>Wrong</th><th>Skipped</th><th>Time</th><th>Per question</th></tr>
       ${rows.map((r) => `<tr><td><b>${cap(r.subject)}</b></td><td class="mono">${pad(r.score, 3)} / ${pad(r.max, 3)}</td><td class="mono">${r.acc == null ? '   –' : pad(r.acc, 3) + '%'}</td><td class="mono">${pad(r.right ?? r.l.filter((q) => verdict(q) === 'C').length, 2)}</td><td class="mono">${pad(r.wrong, 2)}</td><td class="mono">${pad(r.skipped ?? r.l.filter((q) => verdict(q) === 'S').length, 2)}</td><td class="mono">${t2(r.secs)}</td><td class="mono">${t2(r.perQ)}</td></tr>`).join('')}</table></div></div>
     ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">Q${pad(q.position, 2)}</span><span class="grow clip">${fmt(line(q.body))}</span>${verdictChip(verdict(q))}<span class="mono">${t2(q.secs)}</span></div>`).join('')}</div></div>` : ''}
-    ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise from this test</span><div class="card list">${weakHere.map((c) => { const miss = qrows.filter((q) => q.subject === c.subject && (q.chapter || 'No chapter') === c.chapter && verdict(q) !== 'C'); return `<details class="rv ch" name="chap"><summary><div class="col"><b>${esc(c.chapter)}</b><span class="muted">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></summary>
-      <div class="chdrop"><div><span class="lbl">Subject</span><b>${cap(c.subject)}</b></div><div><span class="lbl">Questions</span><b>${c.total}</b></div><div><span class="lbl">Not correct</span><b>${miss.length}</b><span class="muted">${c.wrong} wrong · ${c.skipped} skipped</span></div><div><span class="lbl">Marks missed</span><b>${miss.reduce((x, q) => x + q.marks, 0)}</b></div></div></details>`; }).join('')}</div></div>` : ''}
+    ${weakHere.length ? `<div class="tray"><span class="lbl">Chapters to revise</span><div class="card list">${chapterDrops(qrows, weakHere)}</div></div>` : ''}
     <div class="tray"><div class="row tray-head"><span class="lbl">Review solutions</span><span class="grow"></span>${RQ.length ? `<button class="btn sm dark" data-a="rpractice">Practise ${RQ.length} wrong and skipped</button>` : ''}</div>
       <div class="row tight filt" role="group" aria-label="Show">${FILTERS.map(([k, n, c], i) => `<button class="tab ${i ? '' : 'on'}" data-a="rf" data-f="${k}" aria-pressed="${!i}">${n} <span class="mono">${c}</span></button>`).join('')}</div>
-      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary>${verdictChip(verdict(q))}<span class="mono muted">Q${q.position}</span><span class="grow clip">${fmt(line(q.body))}</span><span class="mono muted" title="Time spent">${mmss(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${mmss(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div>`, { back: true, extra: `<span class="chip">${stratName(a.strategy)}</span>` });
+      <div class="card list" id="rv">${qrows.map((q) => `<details class="rv" data-v="${verdict(q)}" data-m="${marked.includes(q.id) ? 1 : 0}"><summary><span class="mono muted">Q${pad(q.position, 2)}</span><span class="grow clip">${fmt(line(q.body))}</span>${verdictChip(verdict(q))}<span class="mono muted" title="Time spent">${t2(q.secs)}</span></summary>${qBlock(q, ans[q.id])}<p class="muted sm-text">${KIND[q.kind]} · ${t2(q.secs)}${marked.includes(q.id) ? ' · marked for review' : ''}</p></details>`).join('')}</div></div>`, { back: true, extra: `<span class="chip">${stratName(a.strategy)}</span>` });
   reviewFilter(a.wrong ? 'W' : 'all'); // open on what needs revising
   const delta = (d, vs) => { const el = $('#delta'); if (!el) return; el.textContent = `${mine}% · ${d ? `${d > 0 ? '+' : '−'}${Math.abs(d)} vs ${vs}` : `same as ${vs}`}`; if (d) el.classList.add(d > 0 ? 'up' : 'down'); };
   if (prevA) return delta(mine - Math.round((prevA.score / total) * 100), `attempt ${prevA.attempt_no}`); // change vs her previous attempt at this paper
@@ -556,9 +561,14 @@ const airText = () => (navigator.onLine ? '○ Turn on airplane mode' : '✓ Air
 const syncNet = () => { document.querySelectorAll('.net').forEach((e) => (e.outerHTML = netPill())); const a = $('#air'); if (a) a.textContent = airText(); };
 addEventListener('online', syncNet); addEventListener('offline', syncNet);
 const blocks = (n) => `<span class="bar" role="img" aria-label="${Math.round(n)}%">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(n / 10) ? 'on' : ''}"></i>`).join('')}</span>`;
-const chapterRow = (c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></div>`;
 const pad = (v, n) => String(v).padStart(n, ' '); // blanks in front, so figures line up in a monospace column
 const t2 = (s) => { s = Math.max(0, Math.round(s || 0)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+// Chapters as dropdowns, one open at a time: tap to see what it cost
+const chapterDrops = (rows, list) => list.map((c) => {
+  const miss = rows.filter((q) => q.subject === c.subject && (q.chapter || 'No chapter') === c.chapter && verdictOf(q.chosen, q.correct) !== 'C');
+  return `<details class="rv ch" name="chap"><summary><div class="col"><b class="it">${esc(c.chapter)}</b><span class="meta">${cap(c.subject)}</span></div>${blocks(c.acc * 100)}<span class="num-r">${c.right}/${c.total}</span></summary>
+    <div class="chdrop"><div><span class="lbl">Subject</span><b>${cap(c.subject)}</b></div><div><span class="lbl">Questions</span><b>${c.total}</b></div><div><span class="lbl">Not correct</span><b>${miss.length}</b><span class="meta">${c.wrong} wrong · ${c.skipped} skipped</span></div><div><span class="lbl">Marks missed</span><b>${miss.reduce((x, q) => x + q.marks, 0)}</b></div></div></details>`;
+}).join('');
 const line = (t) => t.replace(/\s*\n\s*/g, ' '); // a question on one line, for lists
 const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
 const verdictChip = (v) => `<span class="chip ${v === 'C' ? 'ok' : v === 'W' ? 'bad' : ''}">${{ C: '✓ Correct', W: '✗ Wrong', S: '– Skipped' }[v]}</span>`;
@@ -581,11 +591,11 @@ async function progress() {
     const subs = subjectStats(d.answers, at).filter((s) => s.total), weak = chapterStats(d.answers).filter((c) => c.acc < 1).slice(0, 8), strat = strategyStats(at);
     body = `<div class="stats">${stat('Tests taken', at.length)}${stat('Latest', pct(last) + '%', diff == null ? '' : (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' vs previous')}${stat('Best', Math.max(...at.map(pct)) + '%')}</div>
       <div class="tray"><span class="lbl">Score trend</span><div class="card">${trendSvg(at.map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })), 1000)}</div></div>
-      <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table><tr><th>Subject</th><th>Accuracy</th><th>Per question</th><th>Right</th><th>Wrong</th><th>Skipped</th></tr>
-        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
-        <div class="tray"><span class="lbl">Strategies</span><div class="card list">${strat.map((s) => `<div class="li"><div class="col"><span>${stratName(s.strategy)}</span><span class="muted">${plural(s.n, 'test')}</span></div>${blocks(s.avg)}<span class="num-r">${s.avg}%</span></div>`).join('')}
-          <p class="muted li">${strat.length > 1 ? 'Average score per strategy. More tests make this more reliable.' : 'Try other strategies in later tests to compare.'}</p></div></div></div>
-      <div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${weak.map(chapterRow).join('') || '<p class="muted li">No weak chapters yet.</p>'}</div></div>`;
+      <div class="tray"><span class="lbl">By subject</span><div class="card tbl"><table class="aln"><tr><th>Subject</th><th>Accuracy</th><th>Correct</th><th>Wrong</th><th>Skipped</th><th>Per question</th></tr>
+        ${subs.map((s) => `<tr><td><b>${cap(s.subject)}</b></td><td class="mono">${s.acc == null ? '   –' : pad(s.acc, 3) + '%'}</td><td class="mono">${pad(s.right, 3)}</td><td class="mono">${pad(s.wrong, 3)}</td><td class="mono">${pad(s.skipped, 3)}</td><td class="mono">${t2(s.perQ)}</td></tr>`).join('')}</table></div></div>
+      <div class="split even"><div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${chapterDrops(d.answers, weak) || '<p class="muted li">No weak chapters yet.</p>'}</div></div>
+        <div class="tray"><span class="lbl">Strategies</span><div class="card list">${strat.map((s) => `<div class="li"><div class="col"><b class="it">${stratName(s.strategy)}</b><span class="meta">${plural(s.n, 'test')}</span></div>${blocks(s.avg)}<span class="num-r">${s.avg}%</span></div>`).join('')}
+          <p class="meta li">${strat.length > 1 ? 'Average score per strategy. More tests make this more reliable.' : 'Try other strategies in later tests to compare.'}</p></div></div></div>`;
   }
   app.innerHTML = shell('progress', 'Progress', body);
 }
@@ -596,7 +606,8 @@ async function notebook(filter = '', data) {
   NB = filter ? all.filter((r) => r.subject === filter) : all;
   const chip = (s, n) => `<button class="tab ${filter === s ? 'on' : ''}" aria-pressed="${filter === s}" data-a="nbf" data-s="${s}">${n} <span class="mono">${(s ? all.filter((r) => r.subject === s) : all).length}</span></button>`;
   app.innerHTML = shell('notebook', 'Mistake notebook', `<div class="row tight">${chip('', 'All')}${SUBJECTS.map((s) => chip(s, cap(s))).join('')}<span class="grow"></span><button class="btn dark" data-a="practice" ${NB.length ? '' : 'disabled'}>Practise ${NB.length}</button></div>
-    <div class="tray"><span class="lbl">Wrong or skipped last time</span><div class="card list">${NB.map((r) => `<details class="rv"><summary>${verdictChip(r.chosen == null ? 'S' : 'W')}<span class="mono muted">${cap(r.subject.slice(0, 3))}</span><span class="grow clip">${fmt(line(r.body))}</span></summary>${qBlock(r, r.chosen)}</details>`).join('') || '<p class="muted li">Nothing to revise. Mistakes from your tests appear here.</p>'}</div></div>`);
+    ${SUBJECTS.filter((s) => NB.some((r) => r.subject === s)).map((s) => { const l = NB.filter((r) => r.subject === s).sort((x, y) => (x.chapter || '').localeCompare(y.chapter || ''));
+      return `<div class="tray"><div class="tray-head row"><span class="lbl">${cap(s)}</span><span class="count">${l.length}</span></div><div class="card list">${l.map((r) => `<details class="rv"><summary><div class="col"><span class="it clip">${fmt(line(r.body))}</span><span class="meta">${esc(r.chapter || 'No chapter')}</span></div>${verdictChip(r.chosen == null ? 'S' : 'W')}</summary>${qBlock(r, r.chosen)}</details>`).join('')}</div></div>`; }).join('') || '<div class="card"><p class="muted">Nothing to revise. Mistakes from your tests appear here.</p></div>'}`);
 }
 
 // Untimed retry with instant feedback; a correct answer clears the question from the notebook
