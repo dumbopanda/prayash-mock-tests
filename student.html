@@ -175,12 +175,12 @@ function startScreen(paper) {
       <div class="tray"><span class="lbl">How do you want to attempt it?</span>
         <div class="card flush">${t.strategies.map((k) => `<button class="strat ${k === pick ? 'on' : ''}" data-a="strat" data-k="${k}" aria-pressed="${k === pick}"><span class="dot"></span>
           <span class="txt"><b>${STRATEGIES[k][0]}</b><span class="muted">${STRATEGIES[k][1]}</span></span></button>`).join('')}</div></div>
-      ${order.length > 1 ? `<div class="tray"><span class="lbl">Subject order</span><div class="ord">${order.map((s, i) => `<div class="ordi"><span class="mono muted">${i + 1}</span><b>${cap(s)}</b>
-        <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} earlier" ${i ? '' : 'disabled'}>←</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} later" ${i < order.length - 1 ? '' : 'disabled'}>→</button></div>`).join('')}</div></div>` : ''}
+      <div class="pair">${order.length > 1 ? `<div class="tray"><span class="lbl">Subject order</span><div class="ord">${order.map((s, i) => `<div class="ordi"><span class="mono muted">${i + 1}</span><b>${cap(s)}</b>
+        <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} earlier" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} later" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div></div>` : ''}
       <div class="tray"><span class="lbl">Buttons in the test</span><div class="keys">
         <div><span class="btn sm fake">Clear</span><span class="muted">Removes your answer</span></div>
         <div><span class="btn sm mark fake">Mark for review &amp; next</span><span class="muted">Flags it to revisit. It still counts</span></div>
-        <div><span class="btn sm dark fake">Finish subject →</span><span class="muted">Moves on early</span></div></div></div></div>
+        <div><span class="btn sm dark fake">Finish subject →</span><span class="muted">Moves on early</span></div></div></div></div></div>
       <div class="stack aside"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
         <div class="cd" id="cd" aria-live="polite"></div>
         ${w().lastStart ? `<div class="sub">Start by ${clockTime(w().lastStart)}</div>` : ''}</div>

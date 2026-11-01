@@ -449,3 +449,9 @@ body.exam #toast{top:4.25rem}
 .st>.stack{gap:var(--s3)}
 .adm.stu.mini{--sw:3.75rem}
 @media(max-width:900px){.adm.stu.mini .t{display:none}.adm.stu.mini .nav-i{justify-content:center;padding:0}.adm.stu.mini .nav-g>.lbl{display:none}}
+.st .pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s3);align-items:stretch}
+.st .pair>.tray{height:100%}
+.st .ord{flex-direction:column;flex-wrap:nowrap;gap:var(--s1);background:#fff;height:100%}
+.st .ordi{justify-content:flex-start}.st .ordi b{flex:1}
+.st .keys{grid-template-columns:1fr;height:100%;align-content:space-around}
+@media(max-width:700px){.st .pair{grid-template-columns:1fr}}
