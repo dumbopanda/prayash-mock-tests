@@ -441,3 +441,9 @@ body.exam #toast{top:4.25rem}
 .keys>div{display:flex;flex-direction:column;gap:var(--s2);align-items:flex-start}
 .fake{pointer-events:none;display:inline-flex;align-items:center}
 .dark-card .cd{font-size:var(--fs-2xl)}
+.st .strat{padding:0.625rem 1rem}
+.st .ord{flex-wrap:nowrap;padding:var(--s2) var(--s3)}
+.st .ordi{gap:var(--s1);padding:0.125rem 0.125rem 0.125rem 0.5rem}
+.st .ordi .btn{min-height:2rem;padding:0 0.5rem}
+.st .keys{padding:var(--s2) var(--s3) var(--s3);gap:var(--s3)}
+.st>.stack{gap:var(--s3)}
