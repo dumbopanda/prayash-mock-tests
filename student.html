@@ -54,7 +54,7 @@ const landscape = () => screen.orientation?.lock?.('landscape').catch(() => {});
 // Student-only: the sideways rule starts here, after we know she is a student. The sign-in page and admins are never asked to rotate.
 function student() { if (document.body.classList.contains('stu')) return; document.body.classList.add('stu'); if (matchMedia('(display-mode: fullscreen)').matches) landscape(); }
 let noFs = false; // this browser refuses fullscreen (embedded pane): the test must not get stuck behind the pause screen
-async function fullscreen() { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch { noFs = !isFull(); } landscape(); }
+async function fullscreen() { try { if (!document.fullscreenElement) await Promise.race([document.documentElement.requestFullscreen(), new Promise((_, no) => setTimeout(no, 1500))]); } catch { noFs = !isFull(); } landscape(); } // a refused request may also just hang, hence the timeout
 
 /* ================= Routing: every screen has its own address, so the tablet's back button and the Back buttons go one screen back ================= */
 const PARENT = { start: 'tests', result: 'tests', progress: 'tests', mistakes: 'tests', practice: 'mistakes' };
