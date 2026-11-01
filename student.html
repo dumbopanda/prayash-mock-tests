@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 </head>
-<body class="stu">
+<body>
 <div id="app" class="shell"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div class="rotate" role="alert"><div class="card stack"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="17" width="38" height="24" rx="3"/><path d="M14 10a14 12 0 0 1 20 0"/><path d="M30 6l4 4-5 2"/></svg><b>Turn the tablet sideways</b><span class="muted">The tests work in landscape only.</span></div></div>
@@ -51,6 +51,8 @@ const ask = (text, ok = 'Confirm', html = '') => new Promise((res) => {
 });
 const isFull = () => !!document.fullscreenElement || matchMedia('(display-mode: fullscreen)').matches;
 const landscape = () => screen.orientation?.lock?.('landscape').catch(() => {}); // works in fullscreen; the rotate notice covers the rest
+// Student-only: the sideways rule starts here, after we know she is a student. The sign-in page and admins are never asked to rotate.
+function student() { if (document.body.classList.contains('stu')) return; document.body.classList.add('stu'); if (matchMedia('(display-mode: fullscreen)').matches) landscape(); }
 async function fullscreen() { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch { /* installed app is already fullscreen */ } landscape(); }
 
 /* ================= Routing: every screen has its own address, so the tablet's back button and the Back buttons go one screen back ================= */
@@ -73,6 +75,7 @@ async function route() {
   if (S) return;
   clearInterval(startTimer);
   const [v, a, b] = here();
+  if (['start', 'result', 'progress', 'mistakes', 'practice'].includes(v)) student(); // these screens exist only for students
   if (v === 'start' && a) return openTest(a);
   if (v === 'result' && a) { const r = await rpc('get_result', { p_test: a, ...(b ? { p_attempt: b } : {}) }); return r.data ? showResult(r.data) : (toast(r.error?.message ?? 'Could not load'), go('tests', true)); }
   if (v === 'progress') return progress();
@@ -90,6 +93,7 @@ async function home() {
   const me = await currentUser();
   if (!me) { location.href = 'index.html'; return; }
   if (me.role === 'admin') { location.replace('admin.html'); return; }
+  student();
   const [t, a] = await Promise.all([
     sb.from('tests').select('*').eq('published', true).order('start_at'),
     sb.rpc('get_progress'),
@@ -592,8 +596,7 @@ function ppick(i) {
 }
 
 /* ================= Boot ================= */
-if (matchMedia('(display-mode: fullscreen)').matches) landscape();
-if (S) { history.replaceState(null, '', '#exam'); startEngine(); } // resume after a crash or restart, works offline
+if (S) { student(); history.replaceState(null, '', '#exam'); startEngine(); } // resume after a crash or restart, works offline
 else route();
 </script>
 </body>
