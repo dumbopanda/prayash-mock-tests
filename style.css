@@ -428,3 +428,16 @@ body.exam #toast{top:4.25rem}
 .stu .ttl{font-weight:500;font-size:var(--fs-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .stu .topbar .chip{margin-left:var(--s2)}
 @media(max-width:900px){.adm.stu{grid-template-columns:var(--sw) minmax(0,1fr)}.adm.stu .side{position:sticky;transform:none;width:auto;box-shadow:none}.adm.stu .main .page{padding:var(--s4)}.adm.stu .topbar{padding:0 var(--s3)}}
+
+/* start screen: summary chips, strategy, then the buttons she will use; start card stays in view */
+.st{display:grid;grid-template-columns:minmax(0,1fr) 19rem;gap:var(--s4);align-items:start}
+.st .aside{position:sticky;top:5rem}
+@media(max-width:900px){.st{grid-template-columns:minmax(0,1fr) 15rem}}
+.sum{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.chip.big{font-size:var(--fs-sm);padding:0.25rem 0.75rem}
+.ord{display:flex;flex-wrap:wrap;gap:var(--s2);padding:var(--s3)}
+.ordi{display:flex;align-items:center;gap:var(--s2);border:1px solid var(--line);border-radius:0.5625rem;padding:0.25rem 0.25rem 0.25rem 0.75rem;background:#fff}
+.keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s4);padding:var(--s2) var(--s4) var(--s4);background:#fff}
+.keys>div{display:flex;flex-direction:column;gap:var(--s2);align-items:flex-start}
+.fake{pointer-events:none;display:inline-flex;align-items:center}
+.dark-card .cd{font-size:var(--fs-2xl)}

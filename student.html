@@ -167,22 +167,21 @@ function startScreen(paper) {
   const marks = [...new Set(paper.questions.map((q) => q.marks))].join('/');
   const omr = omrMin(t), w = () => windowOf(t, Date.now() + paper.offset);
   const draw = () => {
-    app.innerHTML = shell('home', t.title, `<div class="cols3">
-      <div class="tray"><span class="lbl">1 · Strategy</span>
+    const neg = +t.neg_marks;
+    app.innerHTML = shell('home', t.title, `<div class="st"><div class="stack">
+      <div class="sum"><span class="chip big">${paper.questions.length} questions</span><span class="chip big">${t.duration_min} min${omr ? ` · last ${omr} OMR` : ''}</span><span class="chip big ok">+${marks}</span><span class="chip big bad">−${neg}</span><span class="chip big">Skipped 0</span>${t.max_attempts ? `<span class="chip big">Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}</span>` : ''}</div>
+      <div class="tray"><span class="lbl">How do you want to attempt it?</span>
         <div class="card flush">${t.strategies.map((k) => `<button class="strat ${k === pick ? 'on' : ''}" data-a="strat" data-k="${k}" aria-pressed="${k === pick}"><span class="dot"></span>
           <span class="txt"><b>${STRATEGIES[k][0]}</b><span class="muted">${STRATEGIES[k][1]}</span></span></button>`).join('')}</div></div>
-      <div class="stack">
-        ${order.length > 1 ? `<div class="tray"><span class="lbl">2 · Which subject first?</span><div class="card list">${order.map((s, i) => `<div class="li"><span class="mono muted">${i + 1}</span><span class="grow">${cap(s)}</span>
-          <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} down" ${i < order.length - 1 ? '' : 'disabled'}>↓</button></div>`).join('')}</div></div>` : ''}
-        <div class="tray"><span class="lbl">How it works</span><div class="card stack tight sm-text rules">
-          <div>Tap an option to answer. <b>Clear</b> removes it. <b>Mark for review &amp; next</b> flags it to come back to; a marked answer still counts.</div>
-          <div>Done with a subject early? Tap <b>Finish subject</b> or <b>Next</b> on the right.</div>
-          <div>Correct +${marks}, wrong −${t.neg_marks}, skipped 0. ${guessTip(+String(marks).split('/')[0], +t.neg_marks)}</div>
-          ${omr ? `<div><b>Last ${omr} min: OMR.</b> Answers lock and you copy them to the paper OMR sheet. Keep the sheet and a black pen ready.</div>` : ''}</div></div></div>
-      <div class="stack"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
-        <div class="t">${esc(t.title)}</div>
-        <div class="sub">${paper.questions.length} questions · ${t.duration_min} min${omr ? ` (${t.duration_min - omr} + ${omr} min OMR)` : ''}<br>Marking +${marks} / −${t.neg_marks}${t.max_attempts ? `<br>Attempt ${Math.min((t.attempts_used ?? 0) + 1, t.max_attempts)} of ${t.max_attempts}` : ''}${w().lastStart ? `<br>Start by ${clockTime(w().lastStart)}` : ''}</div>
-        <div class="cd" id="cd" aria-live="polite"></div></div>
+      ${order.length > 1 ? `<div class="tray"><span class="lbl">Subject order</span><div class="ord">${order.map((s, i) => `<div class="ordi"><span class="mono muted">${i + 1}</span><b>${cap(s)}</b>
+        <button class="btn sm" data-a="up" data-i="${i}" aria-label="Move ${s} earlier" ${i ? '' : 'disabled'}>←</button><button class="btn sm" data-a="down" data-i="${i}" aria-label="Move ${s} later" ${i < order.length - 1 ? '' : 'disabled'}>→</button></div>`).join('')}</div></div>` : ''}
+      <div class="tray"><span class="lbl">Buttons in the test</span><div class="keys">
+        <div><span class="btn sm fake">Clear</span><span class="muted">Removes your answer</span></div>
+        <div><span class="btn sm mark fake">Mark for review &amp; next</span><span class="muted">Flags it to revisit. It still counts</span></div>
+        <div><span class="btn sm dark fake">Finish subject →</span><span class="muted">Moves on early</span></div></div></div></div>
+      <div class="stack aside"><div class="dark-card"><span class="pill ondark">${when(t.start_at)}</span>
+        <div class="cd" id="cd" aria-live="polite"></div>
+        ${w().lastStart ? `<div class="sub">Start by ${clockTime(w().lastStart)}</div>` : ''}</div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
           <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
           <div id="air">${airText()}</div>
