@@ -53,7 +53,8 @@ const isFull = () => !!document.fullscreenElement || matchMedia('(display-mode: 
 const landscape = () => screen.orientation?.lock?.('landscape').catch(() => {}); // works in fullscreen; the rotate notice covers the rest
 // Student-only: the sideways rule starts here, after we know she is a student. The sign-in page and admins are never asked to rotate.
 function student() { if (document.body.classList.contains('stu')) return; document.body.classList.add('stu'); if (matchMedia('(display-mode: fullscreen)').matches) landscape(); }
-async function fullscreen() { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch { /* installed app is already fullscreen */ } landscape(); }
+let noFs = false; // this browser refuses fullscreen (embedded pane): the test must not get stuck behind the pause screen
+async function fullscreen() { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch { noFs = !isFull(); } landscape(); }
 
 /* ================= Routing: every screen has its own address, so the tablet's back button and the Back buttons go one screen back ================= */
 const PARENT = { start: 'tests', result: 'tests', progress: 'tests', mistakes: 'tests', practice: 'mistakes' };
@@ -401,7 +402,7 @@ const actions = {
 const OMR_OK = ['copied', 'submit', 'full', 'retry']; // the only taps that work once answers lock
 
 const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
-const fullGate = () => (isFull() ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
+const fullGate = () => (isFull() || noFs ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
 
 function render() {
   if (!S) return;
