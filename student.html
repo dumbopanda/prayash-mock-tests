@@ -57,7 +57,7 @@ let noFs = false; // this browser refuses fullscreen (embedded pane): the test m
 async function fullscreen() { try { if (!document.fullscreenElement) await Promise.race([document.documentElement.requestFullscreen(), new Promise((_, no) => setTimeout(no, 1500))]); } catch { noFs = !isFull(); } landscape(); } // a refused request may also just hang, hence the timeout
 
 /* ================= Routing: every screen has its own address, so the tablet's back button and the Back buttons go one screen back ================= */
-const PARENT = { start: 'tests', result: 'tests', progress: 'tests', mistakes: 'tests', practice: 'mistakes' };
+const PARENT = { start: 'tests', results: 'tests', review: 'results', result: 'results', progress: 'tests', mistakes: 'tests', practice: 'mistakes' };
 let depth = 0; // screens opened in this session; with none left, Back goes to the parent screen instead of leaving the app
 const here = () => location.hash.slice(1).split('/');
 function go(hash, replace = false) {
@@ -78,9 +78,11 @@ async function route() {
   scrollTo(0, 0); // every screen opens at its top
   if (!app.firstChild) app.innerHTML = '<div class="center"><p class="muted">Loading…</p></div>';
   const [v, a, b] = here();
-  if (['start', 'result', 'progress', 'mistakes', 'practice'].includes(v)) student(); // these screens exist only for students
+  if (['start', 'result', 'results', 'review', 'progress', 'mistakes', 'practice'].includes(v)) student(); // these screens exist only for students
   if (v === 'start' && a) return openTest(a);
   if (v === 'result' && a) { const r = await rpc('get_result', { p_test: a, ...(b ? { p_attempt: b } : {}) }); return r.data ? showResult(r.data) : (toast(r.error?.message ?? 'Could not load'), go('tests', true)); }
+  if (v === 'results') return results();
+  if (v === 'review' && a) return review(a, b, here()[3]);
   if (v === 'progress') return progress();
   if (v === 'mistakes') return notebook();
   if (v === 'practice') return P ? drawPractice() : go('mistakes', true);
@@ -88,11 +90,11 @@ async function route() {
 }
 const backBtn = () => `<button class="btn sm back" data-a="back" aria-label="Back">‹ Back</button>`;
 const netPill = () => `<span class="pill net ${navigator.onLine ? 'on' : ''}">${navigator.onLine ? 'ONLINE' : 'OFFLINE'}</span>`;
-const IC = { tests: '<rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M6 8h4M6 11h3"/>', progress: '<path d="M3 13V8M8 13V3M13 13V6"/>', notebook: '<path d="M4 2h8v12H4zM6.5 5.5h3M6.5 8h3"/>', out: '<path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6"/>' };
+const IC = { results: '<path d="M3 8.5l3 3 7-7"/><path d="M3 14h10"/>', tests: '<rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M6 8h4M6 11h3"/>', progress: '<path d="M3 13V8M8 13V3M13 13V6"/>', notebook: '<path d="M4 2h8v12H4zM6.5 5.5h3M6.5 8h3"/>', out: '<path d="M6 3H3v10h3M10 5l3 3-3 3M13 8H6"/>' };
 const ni = (a, n, i, on) => `<button class="nav-i ${on ? 'on' : ''}" data-a="${a}"${on ? ' aria-current="page"' : ''}><svg viewBox="0 0 16 16" aria-hidden="true">${IC[i]}</svg><span class="t">${n}</span></button>`;
 // Every signed-in screen: menu on the left (sign out at its foot), page name + online + A−/A+ on top
 const shell = (on, title, body, { back = false, extra = '' } = {}) => `<div class="adm stu mini"><aside class="side"><div class="brand"><span class="logo">M</span><span class="t">Mock Tests</span></div>
-  <nav aria-label="Menu"><div class="nav-g">${ni('home', 'Tests', 'tests', on === 'home')}${ni('progress', 'Progress', 'progress', on === 'progress')}${ni('notebook', 'Mistakes', 'notebook', on === 'notebook')}</div></nav>
+  <nav aria-label="Menu"><div class="nav-g">${ni('home', 'Tests', 'tests', on === 'home')}${ni('results', 'Results', 'results', on === 'results')}${ni('progress', 'Progress', 'progress', on === 'progress')}${ni('notebook', 'Mistakes', 'notebook', on === 'notebook')}</div></nav>
   <div class="side-foot">${ni('out', 'Sign out', 'out')}</div></aside>
   <div class="shell-r"><header class="topbar">${back ? backBtn() : ''}<b class="ttl">${esc(title)}</b>${extra}<span class="grow"></span>${netPill()}${sizeCtl()}</header>
   <main class="main"><div class="page">${body}</div></main></div></div>`;
@@ -137,7 +139,13 @@ app.addEventListener('click', async (e) => {
   if (a === 'out') { if (await ask(navigator.onLine ? 'Sign out of this tablet?' : 'You are offline. Once signed out, you can sign in again only with internet. Sign out?', 'Sign out')) logout(); }
   else if (a === 'back') back();
   else if (a === 'open') go('start/' + b.dataset.id);
-  else if (a === 'result') go(`result/${b.dataset.id}`);
+  else if (a === 'result') go(`review/${b.dataset.id}`);
+  else if (a === 'summary') go(`result/${b.dataset.id}${b.dataset.att ? '/' + b.dataset.att : ''}`);
+  else if (a === 'results') go('results');
+  else if (a === 'rvq') { R.i = +b.dataset.i; drawReview(); }
+  else if (a === 'rvstep') { R.i = Math.min(R.qs.length - 1, Math.max(0, R.i + +b.dataset.d)); drawReview(); }
+  else if (a === 'rvsubj') { R.i = R.qs.findIndex((q) => q.subject === b.dataset.s); drawReview(); }
+  else if (a === 'rvatt') go(`review/${R.test.id}/${b.dataset.att}`, true);
   else if (a === 'att') go(`result/${b.dataset.id}/${b.dataset.att}`, true);
   else if (a === 'home') go('tests');
   else if (a === 'progress') go('progress');
@@ -576,6 +584,58 @@ const optLine = (o, j, correct, chosen) => `<div class="optline ${j === correct 
 const qBlock = (q, chosen) => `<div class="qblock"><div class="qbody">${fmt(q.body)}</div>${img(q)}${q.options.map((o, j) => optLine(o, j, q.correct, chosen)).join('')}${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div>`;
 
 let PROG = null, NB = [], P = null;
+
+/* ================= Results: every paper she has given, and a review that looks like the test ================= */
+async function results() {
+  const d = await loadProgress(); if (!d) return go('tests', true);
+  const by = new Map();
+  for (const a of d.attempts) (by.get(a.test_id) ?? by.set(a.test_id, []).get(a.test_id)).push(a);
+  const papers = [...by.values()].sort((x, y) => Date.parse(y.at(-1).submitted_at) - Date.parse(x.at(-1).submitted_at)); // newest first
+  app.innerHTML = shell('results', 'Results', papers.length ? `<div class="tray"><div class="tray-head row"><span class="lbl">Papers you have given</span><span class="count">${papers.length}</span></div><div class="card list">${papers.map((l) => {
+    const last = l.at(-1), best = Math.max(...l.map((x) => x.score));
+    return `<div class="li trow"><div class="col"><b class="it">${esc(last.title)}</b><span class="meta">${when(Date.parse(last.submitted_at))} · ${plural(l.length, 'attempt')} · ${last.correct} correct · ${last.wrong} wrong</span></div>
+      <div class="score"><span class="lbl">${l.length > 1 ? 'Best' : 'Score'}</span><b class="mono">${best} / ${last.max}</b></div>
+      <button class="btn" data-a="summary" data-id="${last.test_id}">Summary</button><button class="btn dark" data-a="result" data-id="${last.test_id}">Review</button></div>`;
+  }).join('')}</div></div>` : '<div class="card"><p class="muted">Papers you submit appear here.</p></div>');
+}
+
+let R = null; // the paper being reviewed
+async function review(testId, attId, qi) {
+  const r = await rpc('get_result', { p_test: testId, ...(attId ? { p_attempt: attId } : {}) });
+  if (!r.data) { toast(r.error?.message ?? 'Could not load'); return go('results', true); }
+  const { attempt: a, test, questions: qs, attempts = [] } = r.data;
+  R = { a, test, attempts, qs, i: Math.min(+qi || 0, qs.length - 1), total: qs.reduce((x, q) => x + q.marks, 0) };
+  drawReview();
+}
+function drawReview() {
+  const { a, test, attempts, qs } = R, q = qs[R.i], ch = a.answers[q.id], v = verdictOf(ch, q.correct);
+  const list = qs.filter((x) => x.subject === q.subject), subs = SUBJECTS.filter((s) => qs.some((x) => x.subject === s));
+  const vOf = (x) => verdictOf(a.answers[x.id], x.correct), cls = { C: 'rc', W: 'rw', S: 'rs' };
+  const tag = (j) => (j === q.correct ? '<span class="tag">✓ Correct answer</span>' : j === ch ? '<span class="tag">✗ Your answer</span>' : '');
+  app.innerHTML = `<div class="xm rvw">
+    <header class="xm-top"><button class="btn sm back" data-a="back" aria-label="Back">‹ Back</button><span class="brand hide-sm">${esc(test.title)}</span>
+      <div class="segs" role="group" aria-label="Subjects">${subs.map((s) => `<button class="seg ${s === q.subject ? 'on' : ''}" aria-pressed="${s === q.subject}" data-a="rvsubj" data-s="${s}">${cap(s).slice(0, 3)}<span class="long">${s.slice(3)}</span> <span class="mono">${qs.filter((x) => x.subject === s && vOf(x) === 'C').length}/${qs.filter((x) => x.subject === s).length}</span></button>`).join('')}</div>
+      <span class="grow"></span>${sizeCtl()}<span class="pill dark">${a.score} / ${R.total}</span></header>
+    <main class="xm-q"><div class="qhead"><h1>Question ${R.i + 1}</h1><span class="muted">${cap(q.subject)} ${list.indexOf(q) + 1} of ${list.length} · ${esc(q.chapter || '')}</span><span class="grow"></span>${verdictChip(v)}</div>
+      <div class="qtext">${fmt(q.body)}</div>${img(q)}
+      <div class="opts">${q.options.map((o, j) => `<div class="optrow ${j === q.correct ? 'right' : j === ch ? 'wrong' : ''} ${j === ch ? 'on' : ''}"><span class="dot"></span><span class="key">${'ABCD'[j]}</span><span>${fmt(o)}</span>${tag(j)}</div>`).join('')}</div>
+      ${ch == null ? '<p class="muted sm-text skipnote">You did not answer this one.</p>' : ''}
+      <details class="ans"><summary>Show answer</summary><div class="ans-body">
+        <section><span class="lbl">Answer</span><p><b>(${'ABCD'[q.correct]}) ${fmt(q.options[q.correct])}</b></p></section>
+        ${q.concept ? `<section><span class="lbl">Concept used</span><p>${fmt(q.concept)}</p></section>` : ''}
+        ${q.formula ? `<section><span class="lbl">Formula used</span><p class="formula">${fmt(q.formula)}</p></section>` : ''}
+        ${q.solution ? `<section><span class="lbl">Solution</span><p>${fmt(q.solution)}</p></section>` : ''}</div></details></main>
+    <footer class="xm-foot"><span class="muted sm-text">${a.times?.[q.id] ? `Time spent ${t2(a.times[q.id])}` : ''}</span><span class="grow"></span>
+      <button class="btn" data-a="rvstep" data-d="-1" ${R.i ? '' : 'disabled'}>‹<span class="long"> Previous</span></button><button class="btn dark wide" data-a="rvstep" data-d="1" ${R.i < qs.length - 1 ? '' : 'disabled'}>Next ›</button></footer>
+    <aside class="xm-side" aria-label="Questions">
+      ${attempts.length > 1 ? `<div class="row tight">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" data-a="rvatt" data-att="${x.id}">Attempt ${x.attempt_no}</button>`).join('')}</div>` : ''}
+      <div class="side-h"><b>${cap(q.subject)}</b><span class="muted">${list.filter((x) => vOf(x) === 'C').length} of ${list.length} correct</span></div>
+      <div class="side-mid"><div class="pal">${list.map((x) => { const k = qs.indexOf(x); return `<button class="sq ${cls[vOf(x)]} ${k === R.i ? 'cur' : ''}" data-a="rvq" data-i="${k}" aria-label="Question ${k + 1}">${k + 1}</button>`; }).join('')}</div>
+      <div class="legend"><div class="li"><span class="sq mini rc"></span><span class="grow">Correct</span></div><div class="li"><span class="sq mini rw"></span><span class="grow">Wrong</span></div><div class="li"><span class="sq mini rs"></span><span class="grow">Skipped</span></div></div></div>
+      <div class="side-act"><button class="btn" data-a="summary" data-id="${test.id}" data-att="${a.id}">Score summary</button></div></aside></div>`;
+  history.replaceState(null, '', `#review/${test.id}/${a.id}/${R.i}`); // reload keeps her place
+  $('.xm-q').scrollTop = 0;
+}
 async function loadProgress() {
   const r = await sb.rpc('get_progress');
   if (r.error) { toast(navigator.onLine ? r.error.message : 'Connect to the internet to see this'); return null; }

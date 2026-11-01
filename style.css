@@ -529,3 +529,24 @@ details.ch[open] summary::after{transform:rotate(90deg)}
 #phase{font-size:var(--fs-md);font-weight:500;color:var(--ink)}
 .omr-h{font-size:var(--fs-sm);font-weight:600;padding:0 var(--s2) var(--s1)}
 details.rv summary .col{min-width:0;flex:1}
+
+/* ===== review: the test screen, read-only, with the answer under the options ===== */
+.rvw .optrow{cursor:default}
+.rvw .optrow.right{background:var(--ok-bg);color:var(--ok);box-shadow:inset 3px 0 0 var(--ok);border-radius:0.5rem}
+.rvw .optrow.wrong{background:var(--bad-bg);color:var(--bad);box-shadow:inset 3px 0 0 var(--bad);border-radius:0.5rem}
+.rvw .optrow.right .dot{border:6px solid var(--ok)}.rvw .optrow.wrong .dot{border:6px solid var(--bad)}
+.rvw .optrow+.optrow{margin-top:2px}
+.skipnote{margin-top:var(--s2)}
+.ans{margin-top:var(--s4);max-width:52rem;border:1px solid var(--line);border-radius:0.75rem;background:#fff}
+.ans summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:var(--s2);min-height:var(--tap);padding:0 var(--s4);font-weight:600;color:var(--blue)}
+.ans summary::-webkit-details-marker{display:none}
+.ans summary::after{content:'›';margin-left:auto;font-size:1.25rem;transition:transform .15s}
+.ans[open] summary::after{transform:rotate(90deg)}
+.ans[open] summary{border-bottom:1px solid var(--rule)}
+.ans-body{display:flex;flex-direction:column}
+.ans-body section{padding:var(--s3) var(--s4);display:flex;flex-direction:column;gap:var(--s1)}
+.ans-body section+section{border-top:1px solid var(--rule)}
+.ans-body p{line-height:1.6}
+.ans-body .formula{font-family:var(--mono);font-size:var(--fs-sm);background:var(--tray);border-radius:0.375rem;padding:var(--s2) var(--s3)}
+.sq.rc{background:var(--ok);color:#fff}.sq.rw{background:var(--bad);color:#fff}.sq.rs{background:#fff;color:var(--ink);border:1.5px dashed var(--ring)}
+.xm-top .back{flex-shrink:0}
