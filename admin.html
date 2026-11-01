@@ -663,6 +663,7 @@ async function vSheet(arg) {
   const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
   const slow = [...qs].sort((x, y) => (times[y.id] || 0) - (times[x.id] || 0)).slice(0, 5).filter((q) => times[q.id]);
   view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
+    <div id="omrph"></div>
     ${attempts.length > 1 ? `<div class="row tight">${attempts.map((x) => `<button class="tab ${x.id === a.id ? 'on' : ''}" data-att="${x.id}">Attempt ${x.attempt_no} <span class="mono">${x.score}</span></button>`).join('')}</div>` : ''}
     ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qs.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span><span class="chip ${lbl[verdictOf(a.answers[q.id], q.correct)][0]}">${lbl[verdictOf(a.answers[q.id], q.correct)][1]}</span><span class="mono">${mmss(times[q.id])}</span></div>`).join('')}</div></div>` : ''}
     ${SUBJECTS.filter((s) => qs.some((q) => q.subject === s)).map((s) => `<div class="tray"><span class="lbl">${cap(s)}</span><div class="card list">${qs.filter((q) => q.subject === s).map((q, i) => {
@@ -671,6 +672,7 @@ async function vSheet(arg) {
         <div class="qblock"><div class="qbody">${fmt(q.body)}</div>${q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure">` : ''}
         ${q.options.map((o, j) => `<div class="optline ${j === q.correct ? 'right' : ch === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === q.correct ? '<span>✓ correct</span>' : ch === j ? '<span>✗ her answer</span>' : ''}</div>`).join('')}
         ${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div></details>`; }).join('')}</div></div>`).join('')}`;
+  sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
 }
 
 async function vReport(sid, days = 7) {

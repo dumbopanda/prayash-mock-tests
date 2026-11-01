@@ -398,8 +398,19 @@ const actions = {
     if (await ask('', 'Submit test', html)) finish();
   },
   retry: () => upload(),
+  shoot: () => $('#cam').click(), // back camera on a phone or tablet; a file picker on a computer
 };
-const OMR_OK = ['copied', 'submit', 'full', 'retry']; // the only taps that work once answers lock
+// photo -> small JPEG kept on the tablet until the upload
+app.addEventListener('change', async (e) => {
+  if (e.target.id !== 'cam' || !S || !e.target.files[0]) return;
+  try {
+    const bmp = await createImageBitmap(e.target.files[0]), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    S.photo = c.toDataURL('image/jpeg', 0.75); S.photoUp = false; persist(); render();
+  } catch { toast('Could not read the photo. Try again.'); }
+});
+const OMR_OK = ['copied', 'submit', 'full', 'retry', 'shoot']; // the only taps that work once answers lock
 
 const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
 const fullGate = () => (isFull() || noFs ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
@@ -424,8 +435,8 @@ function render() {
       <div class="side-h"><b>${cap(q.subject)}</b><span class="muted">${list.filter((x) => S.answers[x.id] != null).length} of ${list.length} answered</span></div>
       <div class="side-mid"><div class="pal">${list.map((x) => `<button class="sq ${status(x)} ${x.id === S.cur ? 'cur' : ''}" data-a="jump" data-id="${x.id}" aria-label="Question ${no(x)}, ${STATE[status(x)]}"${x.id === S.cur ? ' aria-current="true"' : ''}>${no(x)}</button>`).join('')}</div>
       <div class="legend">${Object.entries(STATE).map(([k, nm]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${nm}</span><span class="mono">${count(k)}</span></div>`).join('')}</div></div>
-      <div class="side-act">${n ? `<button class="btn dark" data-a="next">${nextLbl}</button>` : ''}
-        ${S.omrMs ? '<button class="btn" data-a="toOmr">Go to OMR sheet</button>' : ''}<button class="btn danger" data-a="submit">Submit test</button></div></aside></div>
+      <div class="side-act">${n ? `<button class="btn ${S.omrMs ? '' : 'dark'}" data-a="next">${nextLbl}</button>` : ''}
+        ${S.omrMs ? '<button class="btn dark" data-a="toOmr">Go to OMR sheet</button>' : '<button class="btn danger" data-a="submit">Submit test</button>'}</div></aside></div>
     ${fullGate()}`;
   updateClock();
 }
@@ -443,7 +454,9 @@ function renderOmr() {
       }).join('')}</div>`).join('')}</div></main>
     <aside class="xm-side"><div class="phase"><span class="lbl">OMR sheet</span><span class="sm-text">The test submits itself when the time ends.</span></div>
       <div class="stack tight">${stat('Answered', got.length, 'to fill', '')}${stat('Blank', S.qs.length - got.length, 'leave empty', '')}${stat('Copied', got.filter((q) => S.copied.includes(q.id)).length, `of ${got.length}`, '')}</div>
-      <div class="side-act"><button class="btn danger" data-a="submit">Submit test</button></div></aside></div>
+      <div class="side-act">${S.photo ? `<img class="omr-shot" src="${S.photo}" alt="Your OMR sheet photo"><button class="btn" data-a="shoot">Retake photo</button><button class="btn danger" data-a="submit">Submit test</button>`
+        : `${navigator.onLine ? '' : '<p class="err sm-text">Turn off airplane mode: the photo uploads when you submit.</p>'}<p class="sm-text">Fill the paper sheet, then photograph it.</p><button class="btn dark lg" data-a="shoot">Capture OMR sheet</button>`}
+        <input type="file" id="cam" accept="image/*" capture="environment" hidden></div></aside></div>
     ${fullGate()}`;
   updateClock();
 }
@@ -470,6 +483,12 @@ async function upload() {
   const st = await rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy, p_id: S.attemptId, p_started_at: new Date(S.startedAt).toISOString() });
   if (st.error?.code) { S.busy = false; S.err = st.error.message; persist(); return render(); } // a server rule said no; the answers stay on the tablet
   if (st.data?.id) S.attemptId = st.data.id;
+  if (S.photo && !S.photoUp) {
+    const uid = (await sb.auth.getSession()).data.session?.user.id;
+    const up = uid ? await sb.storage.from('omr-photos').upload(`${uid}/${S.attemptId}.jpg`, await (await fetch(S.photo)).blob(), { upsert: true, contentType: 'image/jpeg' }) : { error: { message: 'sign in again' } };
+    if (up.error) { S.busy = false; S.err = 'Photo not uploaded: ' + up.error.message; persist(); return render(); }
+    S.photoUp = true; persist();
+  }
   const r = await rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags, p_id: S.attemptId });
   S.busy = false;
   if (r.error) { S.err = r.error.message; persist(); return render(); }
