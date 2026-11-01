@@ -422,3 +422,9 @@ body.exam #toast{top:4.25rem}
 .side{padding-top:env(safe-area-inset-top);padding-bottom:max(var(--s3),env(safe-area-inset-bottom))}
 .main .page{padding-bottom:max(3.5rem,calc(env(safe-area-inset-bottom) + 1.5rem))}
 @media(max-width:600px){.head .grow{display:none}.head .title{flex:1 1 100%}}
+
+/* student: same shell as the admin, sidebar always visible (also on a narrow landscape tablet) */
+.adm.stu{--sw:12.5rem}
+.stu .ttl{font-weight:500;font-size:var(--fs-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.stu .topbar .chip{margin-left:var(--s2)}
+@media(max-width:900px){.adm.stu{grid-template-columns:var(--sw) minmax(0,1fr)}.adm.stu .side{position:sticky;transform:none;width:auto;box-shadow:none}.adm.stu .main .page{padding:var(--s4)}.adm.stu .topbar{padding:0 var(--s3)}}
