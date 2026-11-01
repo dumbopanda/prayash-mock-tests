@@ -479,3 +479,28 @@ body.exam #toast{top:4.25rem}
 .qsub .sqs i.C{background:var(--ok)}.qsub .sqs i.W{background:var(--bad)}
 .hero>.stat .v{font-size:var(--fs-2xl);line-height:1.15}.hero>.stat .u{font-size:var(--fs-md)}
 @media(max-width:900px){.adm.stu.open .side{position:sticky}}
+
+/* result: score row with a clear order: score first, then the five figures; labels small, figures big */
+.hero{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:stretch;gap:var(--s5);padding:var(--s5)}
+.h-main{display:flex;flex-direction:column;gap:var(--s2);padding-right:var(--s5);border-right:1px solid rgba(255,255,255,.18);justify-content:space-between}
+.h-main .v{font-size:var(--fs-3xl);font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.h-main .u{font-size:var(--fs-lg);font-weight:400;color:var(--on-dark)}
+.h-main .delta{font-size:var(--fs-md)}
+.h-side{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--s4);align-content:space-between}
+.hm{display:flex;flex-direction:column;gap:var(--s1)}
+.hm .lbl{color:var(--on-dark)}
+.hm .n{font-size:var(--fs-xl);font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+.hm .s{font-size:var(--fs-xs);color:var(--on-dark);min-height:1em}
+@media(max-width:900px){.hero{grid-template-columns:1fr}.h-main{border-right:0;padding-right:0}.h-side{grid-template-columns:repeat(3,minmax(0,1fr))}}
+table.aln td.mono,table.aln th{white-space:pre;text-align:right}
+table.aln td:first-child,table.aln th:first-child{text-align:left;white-space:normal}
+table.aln td{vertical-align:middle}
+/* chapters: one open at a time */
+details.ch summary{list-style:none;align-items:center;cursor:pointer}
+details.ch summary::-webkit-details-marker{display:none}
+details.ch summary::after{content:'›';font-size:1.25rem;color:var(--muted);transition:transform .15s;margin-left:var(--s2)}
+details.ch[open] summary::after{transform:rotate(90deg)}
+.chdrop{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3);padding:var(--s3);margin-top:var(--s2);background:var(--tray);border-radius:0.5rem}
+.chdrop>div{display:flex;flex-direction:column;gap:2px}
+.chdrop b{font-size:var(--fs-lg);font-weight:500}
+@media(max-width:700px){.chdrop{grid-template-columns:repeat(2,minmax(0,1fr))}}
