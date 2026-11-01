@@ -476,3 +476,5 @@ body.exam #toast{top:4.25rem}
 .qsub-h .mono{font-size:var(--fs-sm);color:var(--muted)}
 .qsub .sqs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0.375rem}
 .qsub .sqs i{width:100%;height:auto;aspect-ratio:1;border-radius:0.375rem;background:var(--empty)}
+.qsub .sqs i.C{background:var(--ok)}.qsub .sqs i.W{background:var(--bad)}
+.hero>.stat .v{font-size:var(--fs-2xl);line-height:1.15}.hero>.stat .u{font-size:var(--fs-md)}
