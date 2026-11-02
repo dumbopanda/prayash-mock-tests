@@ -193,7 +193,7 @@ async function vQuestions() {
     $('#bulk').disabled = !sel.size;
     $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th>Tests</th><th></th></tr>
       ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td><td>${cap(r.subject)}</td><td>${esc(r.chapter) || '<span class="muted">–</span>'}</td>
-        <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}${r.image_url ? ' <span class="chip">Figure</span>' : ''}</td>
+        <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}${r.image_url ? ' <span class="chip">Figure</span>' : ''}${r.hold ? ' <span class="chip warn">On hold</span>' : ''}</td>
         <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono">${r.test_questions.length || '–'}</td>
         <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>${r.test_questions.length ? '' : `<button class="btn sm danger" data-d="${r.id}">Delete</button>`}</td></tr>`).join('')
         || '<tr><td colspan="7" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
@@ -514,7 +514,7 @@ async function vPreview(id) {
 async function vTestForm(t) {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [{ data: qs }, { data: use }, { count: attempts }] = await Promise.all([
-    fetchAll(() => sb.from('questions').select('id,subject,chapter,body').order('created_at')),
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,body,hold').order('created_at')),
     fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
   ]);
@@ -546,13 +546,13 @@ async function vTestForm(t) {
       <div class="stack tight"><span class="lbl">Strategies she can pick</span>
         <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div>
     </div></div>
-    <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="grow"></span>
+    <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${qs.filter((x) => x.hold && !chosen.has(x.id)).length} on hold, not shown</span><span class="grow"></span>
       <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
       <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label>
       <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
       <div class="card"><div class="row top-align">${SUBJECTS.map((s) => `
       <div class="col pickcol"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
-        <div class="list pick">${qs.filter((x) => x.subject === s).map((x) => `
+        <div class="list pick">${qs.filter((x) => x.subject === s && (!x.hold || chosen.has(x.id))).map((x) => `
           <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}${x.body.length > 70 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div></div></div>
     <div class="err" id="msg" role="alert"></div>
     <div class="row"><button class="btn dark" id="save">Save test</button><button class="btn" id="back">Cancel</button></div>`;
