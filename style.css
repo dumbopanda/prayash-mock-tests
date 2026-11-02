@@ -619,3 +619,4 @@ details.rv summary .col{min-width:0;flex:1}
 @media(max-width:1100px){.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.adm:not(.stu) .stats.k5{grid-template-columns:repeat(3,minmax(0,1fr))}.te{grid-template-columns:1fr}.te-side{position:static}}
 @media(max-width:900px){.g21,.g3{grid-template-columns:1fr}.adm:not(.stu) .main .page{padding:1.25rem 1rem 3rem}.main details.rv summary.rs{grid-template-columns:1fr}}
 @media(max-width:640px){.adm:not(.stu) .stats.k5{grid-template-columns:repeat(2,minmax(0,1fr))}.trow{flex-wrap:wrap}.trow .acts{margin-left:0}}
+.vsep{align-self:stretch;width:1px;background:var(--rule);margin:.125rem .25rem}

@@ -118,6 +118,7 @@ const DAY = 864e5;
 const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : t.end_at && n > Date.parse(t.end_at) ? 'Closed' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
+let DP = (() => { try { return localStorage.dashPeriod || '7'; } catch { return '7'; } })(); // dashboard period: 7 | 30 | all
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [qs, ts, st] = await Promise.all([
@@ -129,7 +130,7 @@ async function vDash() {
   if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
   const prog = await Promise.all(st.data.map((s) => sb.rpc('get_progress', { p_student: s.id }).then((r) => ({ s, at: r.data?.attempts ?? [] }))));
   const all = prog.flatMap((p) => p.at.map((a) => ({ ...a, student: p.s.name }))).sort((a, b) => (a.submitted_at < b.submitted_at ? -1 : 1));
-  const now = Date.now(), wk = all.filter((a) => Date.parse(a.submitted_at) >= now - 7 * DAY);
+  const now = Date.now(), wk = DP === 'all' ? all : all.filter((a) => Date.parse(a.submitted_at) >= now - (DP === '30' ? 30 : 7) * DAY);
   const mins = Math.round(wk.reduce((n, a) => n + Object.values(a.times || {}).reduce((x, y) => x + y, 0), 0) / 60);
   const flagged = wk.filter((a) => (a.flags || []).length);
   const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 13 + i); return d; });
@@ -144,16 +145,16 @@ async function vDash() {
   const keyless = qs.data.filter((q) => !q.question_keys).length;
   if (keyless) todo.push([`${plural(keyless, 'question')} without an answer key`, 'questions']);
   if (!st.data.length) todo.push(['No student account yet. Create one from the sign-in page.', 'dash']);
-  prog.forEach(({ s, at }) => { const last = at.at(-1); if (!last || now - Date.parse(last.submitted_at) > 7 * DAY) todo.push([`<b>${esc(s.name)}</b> has not taken a test in the last 7 days`, 'results']); });
-  if (flagged.length) todo.push([`${plural(flagged.length, 'attempt')} with cheat flags this week`, 'results']);
+  if (flagged.length) todo.push([`${plural(flagged.length, 'attempt')} with cheat flags`, 'results']);
 
   const panel = (title, body, link, hint = '') => `<div class="tray"><div class="row tray-head"><span class="ttl">${title}</span>${hint ? `<span class="muted">${hint}</span>` : ''}<span class="grow"></span>${link ? `<a class="link" href="#${link[0]}">${link[1]}</a>` : ''}</div><div class="card ${body.cls ?? ''}">${body.html ?? body}</div></div>`;
   const bySubj = SUBJECTS.map((s) => ({ s, n: qs.data.filter((q) => q.subject === s).length, c: new Set(qs.data.filter((q) => q.subject === s && q.chapter).map((q) => q.chapter)).size }));
   const held = qs.data.filter((q) => q.hold).length;
   const attn = todo.length ? `<div class="attn" role="region" aria-label="Needs attention"><div class="attn-h"><span class="bang" aria-hidden="true">!</span><b>${plural(todo.length, 'thing')} ${todo.length === 1 ? 'needs' : 'need'} attention</b></div>${todo.map(([t, p]) => `<a class="attn-i" href="#${p}"><span class="grow">${t}</span><span class="muted">›</span></a>`).join('')}</div>` : '';
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Dashboard</h1><span class="muted">Counts are for the last 7 days unless noted.</span></div><span class="grow"></span>
-      <a class="btn" href="#form">Add question</a><a class="btn dark" href="#testform">New test</a></div>
+    <div class="head"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span>
+      <a class="btn" href="#form">Add question</a><a class="btn dark" href="#testform">New test</a><span class="vsep" aria-hidden="true"></span>
+      <div class="tabs" id="per" role="group" aria-label="Time period">${[['7', '7 days'], ['30', '1 month'], ['all', 'All']].map(([v, l]) => `<button class="tab ${v === DP ? 'on' : ''}" data-p="${v}">${l}</button>`).join('')}</div></div>
     ${attn}
     <div class="stats k5">${stat('Students', st.data.length)}${stat('Tests taken', wk.length)}${stat('Average score', wk.length ? Math.round(wk.reduce((n, a) => n + pct(a), 0) / wk.length) + '%' : '–')}
       ${stat('Time practised', mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`)}${stat('Cheat flags', flagged.reduce((n, a) => n + a.flags.length, 0))}</div>
@@ -166,6 +167,7 @@ async function vDash() {
       ${panel('Tests taken per day', `${barsSvg(perDay, days.map((d) => d.getDate()))}<p class="muted">Last 14 days</p>`)}
       ${panel('Question bank', { cls: 'tbl', html: `<table><tr><th>Subject</th><th>Questions</th><th>Chapters</th></tr>${bySubj.map((r) => `<tr><td>${cap(r.s)}</td><td class="mono">${r.n}</td><td class="mono">${r.c}</td></tr>`).join('')}</table>` }, ['questions', 'Open'], `${qs.data.length} total${held ? ` · ${held} on hold` : ''}`)}
     </div>`;
+  $('#per').onclick = (e) => { const b = e.target.closest('[data-p]'); if (!b) return; DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} vDash(); };
 }
 
 /* ---------- Question bank ---------- */
