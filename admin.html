@@ -121,7 +121,7 @@ const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [qs, ts, st] = await Promise.all([
-    fetchAll(() => sb.from('questions').select('id,subject,chapter,question_keys(correct)')),
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,hold,question_keys(correct)')),
     sb.from('tests').select('id,title,start_at,duration_min,published,test_questions(questions(subject))').order('start_at', { ascending: false }),
     sb.from('profiles').select('id,name').eq('role', 'student'),
   ]);
@@ -147,21 +147,25 @@ async function vDash() {
   prog.forEach(({ s, at }) => { const last = at.at(-1); if (!last || now - Date.parse(last.submitted_at) > 7 * DAY) todo.push([`<b>${esc(s.name)}</b> has not taken a test in the last 7 days`, 'results']); });
   if (flagged.length) todo.push([`${plural(flagged.length, 'attempt')} with cheat flags this week`, 'results']);
 
-  const panel = (title, body, link) => `<div class="tray"><div class="row tray-head"><span class="ttl">${title}</span><span class="grow"></span>${link ? `<a class="link" href="#${link[0]}">${link[1]}</a>` : ''}</div><div class="card ${body.cls ?? ''}">${body.html ?? body}</div></div>`;
+  const panel = (title, body, link, hint = '') => `<div class="tray"><div class="row tray-head"><span class="ttl">${title}</span>${hint ? `<span class="muted">${hint}</span>` : ''}<span class="grow"></span>${link ? `<a class="link" href="#${link[0]}">${link[1]}</a>` : ''}</div><div class="card ${body.cls ?? ''}">${body.html ?? body}</div></div>`;
   const bySubj = SUBJECTS.map((s) => ({ s, n: qs.data.filter((q) => q.subject === s).length, c: new Set(qs.data.filter((q) => q.subject === s && q.chapter).map((q) => q.chapter)).size }));
+  const held = qs.data.filter((q) => q.hold).length;
+  const attn = todo.length ? `<div class="attn" role="region" aria-label="Needs attention"><div class="attn-h"><span class="bang" aria-hidden="true">!</span><b>${plural(todo.length, 'thing')} ${todo.length === 1 ? 'needs' : 'need'} attention</b></div>${todo.map(([t, p]) => `<a class="attn-i" href="#${p}"><span class="grow">${t}</span><span class="muted">›</span></a>`).join('')}</div>` : '';
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Dashboard</h1><span class="muted">Tests, scores and activity. Counts are for the last 7 days unless noted.</span></div><span class="grow"></span>
-      <a class="btn dark" href="#testform">New test</a><a class="btn" href="#form">Add question</a></div>
-    <div class="stats">${stat('Students', st.data.length)}${stat('Tests taken', wk.length)}${stat('Average score', wk.length ? Math.round(wk.reduce((n, a) => n + pct(a), 0) / wk.length) + '%' : '–')}
-      ${stat('Time practised', mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`)}${stat('Cheat flags', flagged.reduce((n, a) => n + a.flags.length, 0))}${stat('Questions in bank', qs.data.length)}</div>
-    <div class="g2">
-      ${panel('Tests taken per day', `${barsSvg(perDay, days.map((d) => d.getDate()))}<p class="muted">Last 14 days</p>`)}
-      ${panel('Needs attention', { cls: 'list', html: todo.map(([t, p]) => `<a class="li todo" href="#${p}"><span class="grow">${t}</span><span class="muted">›</span></a>`).join('') || '<p class="muted li">Nothing needs attention.</p>' })}
-      ${panel('Score trend', `${trendSvg(all.slice(-10).map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) })))}`, ['results', 'Results'])}
-      ${panel('Tests', { cls: 'tbl', html: `<table><tr><th>Title</th><th>Starts</th><th>Status</th><th>Taken</th></tr>${ts.data.slice(0, 5).map((t) => `<tr><td>${esc(t.title)}</td><td class="mono">${when(t.start_at)}</td><td>${statusChip(t)}</td><td class="mono">${attemptsOf(t)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No tests yet.</td></tr>'}</table>` }, ['tests', 'All tests'])}
+    <div class="head"><div class="title"><h1>Dashboard</h1><span class="muted">Counts are for the last 7 days unless noted.</span></div><span class="grow"></span>
+      <a class="btn" href="#form">Add question</a><a class="btn dark" href="#testform">New test</a></div>
+    ${attn}
+    <div class="stats k5">${stat('Students', st.data.length)}${stat('Tests taken', wk.length)}${stat('Average score', wk.length ? Math.round(wk.reduce((n, a) => n + pct(a), 0) / wk.length) + '%' : '–')}
+      ${stat('Time practised', mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`)}${stat('Cheat flags', flagged.reduce((n, a) => n + a.flags.length, 0))}</div>
+    <div class="g21">
+      ${panel('Recent attempts', { cls: 'tbl', html: `<table><tr><th>Student</th><th>Test</th><th>Score</th><th>Strategy</th><th>Flags</th><th>Submitted</th></tr>${[...all].reverse().slice(0, 6).map((a) => `<tr><td>${esc(a.student)}</td><td>${esc(a.title)}</td><td class="mono">${a.score} / ${a.max} · ${pct(a)}%</td><td>${esc(stratName(a.strategy))}</td><td class="mono">${(a.flags || []).length || '–'}</td><td class="mono">${when(a.submitted_at)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No attempts yet.</td></tr>'}</table>` }, ['results', 'All results'])}
+      ${panel('Tests', { cls: 'tbl', html: `<table><tr><th>Title</th><th>Status</th><th>Taken</th></tr>${ts.data.slice(0, 5).map((t) => `<tr><td>${esc(t.title)}<br><span class="muted mono">${when(t.start_at)}</span></td><td>${statusChip(t)}</td><td class="mono">${attemptsOf(t)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No tests yet.</td></tr>'}</table>` }, ['tests', 'All tests'])}
     </div>
-    ${panel('Recent attempts', { cls: 'tbl', html: `<table><tr><th>Student</th><th>Test</th><th>Score</th><th>Strategy</th><th>Flags</th><th>Submitted</th></tr>${[...all].reverse().slice(0, 6).map((a) => `<tr><td>${esc(a.student)}</td><td>${esc(a.title)}</td><td class="mono">${a.score} / ${a.max} · ${pct(a)}%</td><td>${esc(stratName(a.strategy))}</td><td class="mono">${(a.flags || []).length || '–'}</td><td class="mono">${when(a.submitted_at)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No attempts yet.</td></tr>'}</table>` }, ['results', 'All results'])}
-    ${panel('Question bank', { cls: 'tbl', html: `<table><tr><th>Subject</th><th>Questions</th><th>Chapters</th></tr>${bySubj.map((r) => `<tr><td>${cap(r.s)}</td><td class="mono">${r.n}</td><td class="mono">${r.c}</td></tr>`).join('')}</table>` }, ['questions', 'Open'])}`;
+    <div class="g3">
+      ${panel('Score trend', trendSvg(all.slice(-10).map((a, i) => ({ label: 'T' + (i + 1), value: pct(a) }))), ['results', 'Results'])}
+      ${panel('Tests taken per day', `${barsSvg(perDay, days.map((d) => d.getDate()))}<p class="muted">Last 14 days</p>`)}
+      ${panel('Question bank', { cls: 'tbl', html: `<table><tr><th>Subject</th><th>Questions</th><th>Chapters</th></tr>${bySubj.map((r) => `<tr><td>${cap(r.s)}</td><td class="mono">${r.n}</td><td class="mono">${r.c}</td></tr>`).join('')}</table>` }, ['questions', 'Open'], `${qs.data.length} total${held ? ` · ${held} on hold` : ''}`)}
+    </div>`;
 }
 
 /* ---------- Question bank ---------- */
@@ -191,12 +195,12 @@ async function vQuestions() {
     const l = shown();
     $('#cnt').textContent = `${plural(l.length, 'question')} shown${sel.size ? ` · ${sel.size} selected` : ''}`;
     $('#bulk').disabled = !sel.size;
-    $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th>Tests</th><th></th></tr>
-      ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td><td>${cap(r.subject)}</td><td>${esc(r.chapter) || '<span class="muted">–</span>'}</td>
-        <td>${fmt(r.body.slice(0, 110))}${r.body.length > 110 ? '…' : ''}${r.image_url ? ' <span class="chip">Figure</span>' : ''}${r.hold ? ' <span class="chip warn">On hold</span>' : ''}</td>
+    $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Question</th><th>Ans</th><th>Tests</th><th></th></tr>
+      ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td>
+        <td class="qcell"><span class="qline">${fmt(r.body.slice(0, 160))}${r.body.length > 160 ? '…' : ''}</span><span class="qmeta">${cap(r.subject)} · ${esc(r.chapter) || 'No chapter'}${r.image_url ? ' <span class="chip">Figure</span>' : ''}${r.hold ? ' <span class="chip warn">On hold</span>' : ''}</span></td>
         <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono">${r.test_questions.length || '–'}</td>
         <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>${r.test_questions.length ? '' : `<button class="btn sm danger" data-d="${r.id}">Delete</button>`}</td></tr>`).join('')
-        || '<tr><td colspan="7" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
+        || '<tr><td colspan="5" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
       ${l.length > F.limit ? `<div class="row li"><span class="muted">Showing ${F.limit} of ${l.length}.</span><button class="btn sm" id="more">Show all</button></div>` : ''}`;
     $('#more')?.addEventListener('click', () => { F.limit = Infinity; table(); });
   };
@@ -440,13 +444,13 @@ async function vTests() {
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
     <div class="head"><div class="title"><h1>Tests</h1><span class="muted">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
-    <div class="tray"><span class="lbl">${plural(data.length, 'test')}</span><div class="card list">
+    <div class="tray"><div class="row tray-head"><span class="ttl">${plural(data.length, 'test')}</span></div><div class="card list">
       ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at).length;
-        return `<div class="li wrap"><div class="col"><span class="row tight"><b>${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
+        return `<div class="li trow"><div class="col"><span class="row tight"><b class="tt">${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
         <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
         <span class="row tight"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
-        <button class="btn sm ${t.published ? '' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
-        ${t.attempts.length ? '' : `<button class="btn sm danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted li">No tests yet. Import a paper to create one.</p>'}
+        <button class="btn sm ${t.published ? 'ghost' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
+        ${t.attempts.length ? '' : `<button class="btn sm ghost danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted li">No tests yet. Import a paper to create one.</p>'}
     </div></div>`;
   view.onclick = async (e) => {
     const b = e.target.closest('[data-v],[data-e],[data-p],[data-d],#new'); if (!b) return;
@@ -522,42 +526,55 @@ async function vTestForm(t) {
   if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
   const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
+  const held = qs.filter((x) => x.hold && !chosen.has(x.id)).length;
   view.innerHTML = `
-    <div class="head"><h1>${t ? 'Edit' : 'New'} test</h1></div>
+    <div class="head"><div class="title"><h1>${t ? 'Edit' : 'New'} test</h1><span class="muted">Set the schedule and scoring, then pick 15 questions for each subject.</span></div></div>
     ${attempts ? '<p class="note">She has taken this test, so its questions and negative marks are locked. Title, time, attempts and publishing can still change.</p>' : ''}
-    <div class="tray"><span class="lbl">Settings</span><div class="card stack">
-      <div class="row">
-        <div class="col x2"><label class="lbl" for="title">Title</label><input id="title" class="field" value="${esc(t?.title ?? '')}"></div>
-        <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${t ? toLocal(t.start_at) : soon()}"></div>
-        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="${t?.duration_min ?? 120}"></div>
-        <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
-        <div class="col s"><label class="lbl" for="att">Attempts</label><input id="att" class="field mono" type="number" min="1" max="10" value="${t?.max_attempts ?? 3}"></div>
+    <div class="te">
+      <div class="te-main">
+        <div class="tray"><div class="row tray-head"><span class="ttl">Details</span></div><div class="card stack">
+          <div class="col"><label class="lbl" for="title">Title</label><input id="title" class="field" value="${esc(t?.title ?? '')}" placeholder="e.g. Prayash Mock Test 5"></div>
+          <div class="row">
+            <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${t ? toLocal(t.start_at) : soon()}"></div>
+            <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="${t?.duration_min ?? 120}"></div>
+            <div class="col s"><label class="lbl" for="omr">OMR minutes</label><input id="omr" class="field mono" type="number" min="0" max="60" value="${t?.omr_min ?? 10}"></div>
+            <div class="col s"><label class="lbl" for="win">Open for (hrs)</label><input id="win" class="field mono" type="number" min="0" step="0.5" placeholder="No limit" value="${winH}"></div>
+          </div>
+          <p class="muted" id="winTxt"></p>
+          <div class="row">
+            <div class="col s"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="${t?.neg_marks ?? 1}"></div>
+            <div class="col s"><label class="lbl" for="att">Attempts</label><input id="att" class="field mono" type="number" min="1" max="10" value="${t?.max_attempts ?? 3}"></div>
+            <label class="opt grow"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Record leaving fullscreen or the app</label>
+          </div>
+        </div></div>
+        <div class="tray"><div class="row tray-head"><span class="ttl">Strategies she can pick</span></div><div class="card">
+          <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div></div>
+        <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${held} on hold, not shown</span><span class="grow"></span>
+          <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
+          <div class="card flush"><div class="row ptool">
+            <div class="tabs" role="tablist">${SUBJECTS.map((s, i) => `<button type="button" class="tab ${i ? '' : 'on'}" data-tab="${s}">${cap(s)} <span class="mono"><span class="n-${s}">0</span>/15</span></button>`).join('')}</div>
+            <span class="grow"></span>
+            <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
+            <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label></div>
+          ${SUBJECTS.map((s, i) => `
+          <div class="pickcol" data-s="${s}" ${i ? 'hidden' : ''}><div class="list pick">${qs.filter((x) => x.subject === s && (!x.hold || chosen.has(x.id))).map((x) => `
+            <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted li">No questions.</span>'}</div></div>`).join('')}
+          </div></div>
       </div>
-      <div class="row">
-        <div class="col m"><label class="lbl" for="win">Open for (hrs)</label><input id="win" class="field mono" type="number" min="0" step="0.5" placeholder="No limit" value="${winH}"></div>
-        <div class="col m"><label class="lbl" for="omr">OMR minutes</label><input id="omr" class="field mono" type="number" min="0" max="60" value="${t?.omr_min ?? 10}"></div>
-        <p class="muted col x2" id="winTxt"></p>
-      </div>
-      <p class="muted">She can download it 15 minutes before it opens. OMR minutes come out of the test time at the end: answers lock and she copies them to a paper OMR sheet (0 turns it off). Every attempt is kept with its score and times.</p>
-      <div class="row">
-        <label class="opt"><input type="checkbox" id="cheat" ${t?.cheat_flags ?? true ? 'checked' : ''}> Record leaving fullscreen or the app</label>
+      <aside class="te-side"><div class="tray"><div class="row tray-head"><span class="ttl">Summary</span></div><div class="card stack">
+        ${SUBJECTS.map((s) => `<div class="sumrow"><span>${cap(s)}</span><span class="grow"></span><span class="mono"><span class="n-${s}">0</span> / 15</span><span class="mbar"><i class="b-${s}"></i></span></div>`).join('')}
+        <div class="sumrow tot"><b>Total</b><span class="grow"></span><span class="mono"><b id="n-all">0</b> / 60</span></div>
         <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
-      </div>
-      <div class="stack tight"><span class="lbl">Strategies she can pick</span>
-        <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div>
-    </div></div>
-    <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${qs.filter((x) => x.hold && !chosen.has(x.id)).length} on hold, not shown</span><span class="grow"></span>
-      <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
-      <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label>
-      <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
-      <div class="card"><div class="row top-align">${SUBJECTS.map((s) => `
-      <div class="col pickcol"><span class="lbl">${cap(s)} · <span id="n-${s}">0</span> / 15</span>
-        <div class="list pick">${qs.filter((x) => x.subject === s && (!x.hold || chosen.has(x.id))).map((x) => `
-          <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 70))}${x.body.length > 70 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted">No questions.</span>'}</div></div>`).join('')}</div></div></div>
-    <div class="err" id="msg" role="alert"></div>
-    <div class="row"><button class="btn dark" id="save">Save test</button><button class="btn" id="back">Cancel</button></div>`;
+        <p class="muted">She can download it 15 minutes before it opens. OMR minutes come out of the test time at the end: answers lock and she copies them to a paper OMR sheet (0 turns it off).</p>
+        <div class="err" id="msg" role="alert"></div>
+        <button class="btn dark lg" id="save">Save test</button><button class="btn" id="back">Cancel</button>
+      </div></div></aside>
+    </div>`;
 
-  const count = () => SUBJECTS.forEach((s) => ($(`#n-${s}`).textContent = view.querySelectorAll(`.q[data-s=${s}]:checked`).length));
+  const count = () => { let all = 0; SUBJECTS.forEach((s) => { const n = view.querySelectorAll(`.q[data-s=${s}]:checked`).length; all += n;
+    view.querySelectorAll(`.n-${s}`).forEach((e) => (e.textContent = n)); const b = view.querySelector(`.b-${s}`); b.style.width = Math.min(100, (n / 15) * 100) + '%'; b.classList.toggle('full', n === 15); }); $('#n-all').textContent = all; };
+  view.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (!b) return;
+    view.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b)); view.querySelectorAll('.pickcol').forEach((c) => (c.hidden = c.dataset.s !== b.dataset.tab)); };
   const filter = () => { const f = $('#qf').value.toLowerCase(), h = $('#hide').checked;
     view.querySelectorAll('.pick label').forEach((l) => (l.hidden = (f && !l.dataset.t.includes(f)) || (h && l.dataset.u !== '0' && !l.querySelector('input').checked))); };
   // Plain-language window: when it opens, the latest start that still finishes in time, when it closes
@@ -633,13 +650,14 @@ async function vResults(sid) {
   const { data: ts } = await sb.from('tests').select('*');
   const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
   const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
-  view.innerHTML = `<div class="head"><h1>Results</h1><span class="grow"></span>${d.picker}</div>
-    <div class="tray"><span class="lbl">${plural(d.attempts.length, 'attempt')}</span><div class="card list">${[...d.attempts].reverse().map((a) => {
+  view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted">Every submitted attempt. Open one for subject scores and flags.</span></div><span class="grow"></span>${d.picker}</div>
+    <div class="tray"><div class="row tray-head"><span class="ttl">${plural(d.attempts.length, 'attempt')}</span></div><div class="card list">${[...d.attempts].reverse().map((a) => {
       const rows = d.answers.filter((r) => r.attempt_id === a.id), neg = +(testOf(a.test_id).neg_marks ?? 1);
       const subs = subjectStats(rows, [a]).filter((s) => s.total).map((s) => ({ ...s, score: rows.filter((r) => r.subject === s.subject && r.chosen === r.correct).reduce((n, r) => n + r.marks, 0) - s.wrong * neg, max: rows.filter((r) => r.subject === s.subject).reduce((n, r) => n + r.marks, 0) }));
       const active = Object.values(a.times || {}).reduce((x, y) => x + y, 0);
       const prev = d.attempts.find((x) => x.test_id === a.test_id && x.attempt_no === a.attempt_no - 1);
-      return `<details class="rv"><summary><b>${esc(a.title)}</b>${a.attempt_no ? `<span class="chip">Attempt ${a.attempt_no}</span>` : ''}<span class="mono">${a.score} / ${a.max} · ${pct(a)}%${prev ? ` (${a.score === prev.score ? 'same as' : `${a.score > prev.score ? '+' : '−'}${Math.abs(a.score - prev.score)} vs`} attempt ${prev.attempt_no})` : ''}</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span>
+      return `<details class="rv"><summary class="rs"><span class="col"><span class="row tight"><b>${esc(a.title)}</b>${a.attempt_no ? `<span class="chip">Attempt ${a.attempt_no}</span>` : ''}</span><span class="muted">${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></span>
+        <span class="col"><span class="mono sc">${a.score} / ${a.max}</span><span class="muted mono">${pct(a)}%${prev ? ` · ${a.score === prev.score ? 'same as' : `${a.score > prev.score ? '+' : '−'}${Math.abs(a.score - prev.score)} vs`} attempt ${prev.attempt_no}` : ''}</span></span>
         <span class="chip ${(a.flags || []).length ? 'bad' : 'ok'}">Flags: ${esc(flagLine(a))}</span></summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
