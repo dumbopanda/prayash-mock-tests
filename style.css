@@ -611,7 +611,9 @@ details.rv summary .col{min-width:0;flex:1}
 .pickcol .pick{max-height:30rem;padding:0 .5rem}
 .pickcol .pick label{padding:.625rem .5rem;align-items:flex-start;line-height:1.45}
 /* results: test and date, then score, then flags */
-.main details.rv summary.rs{display:grid;grid-template-columns:minmax(0,2fr) minmax(9rem,1fr) auto;align-items:center;gap:1rem}
+.main details.rv summary.rs{display:grid;grid-template-columns:minmax(0,2fr) 9rem minmax(10rem,18rem);align-items:center;gap:1rem}
+.rs>.chip{white-space:normal;justify-self:end;text-align:right}
+.te .col:has(#start){flex:1 1 13rem}
 .rs .col{min-width:0;gap:.125rem}
 .rs .sc{font-size:1.125rem;font-weight:500}
 @media(max-width:1100px){.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.adm:not(.stu) .stats.k5{grid-template-columns:repeat(3,minmax(0,1fr))}.te{grid-template-columns:1fr}.te-side{position:static}}
