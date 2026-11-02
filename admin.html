@@ -172,7 +172,7 @@ async function vDash() {
 const F = { subject: '', chapter: '', text: '', use: '', limit: 200 }; // bank filters, kept while moving between pages
 async function vQuestions() {
   view.innerHTML = '<p class="muted">Loading…</p>';
-  const { data, error } = await fetchAll(() => sb.from('questions').select('*, question_keys(correct, solution), test_questions(test_id)').order('created_at', { ascending: false }));
+  const { data, error } = await fetchAll(() => sb.from('questions').select('*, question_keys(correct, solution, concept, formula), test_questions(test_id)').order('created_at', { ascending: false }));
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const sel = new Set();
   view.innerHTML = `
@@ -256,6 +256,8 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
       <div class="stack tight"><span class="lbl">Options · mark the correct one</span>
         ${[0, 1, 2, 3].map((i) => `<div class="opt"><input type="radio" name="ans" value="${i}" aria-label="${'ABCD'[i]} is correct" ${k.correct === i ? 'checked' : ''}>
           <span class="key">${'ABCD'[i]}</span><input class="field o" aria-label="Option ${'ABCD'[i]}" value="${esc(opts[i])}"></div>`).join('')}</div>
+      <div class="row"><div class="col"><label class="lbl" for="concept">Concept used</label><input id="concept" class="field" value="${esc(k.concept ?? '')}"></div>
+        <div class="col"><label class="lbl" for="formula">Formula used</label><input id="formula" class="field mono" value="${esc(k.formula ?? '')}"></div></div>
       <div class="col"><label class="lbl" for="sol">Solution</label><textarea id="sol" class="field" rows="3">${esc(k.solution ?? '')}</textarea></div>
       <div class="err" id="msg" role="alert"></div>
       <div class="row"><button class="btn dark" id="save">Save question</button>${q ? '' : '<button class="btn" id="again">Save &amp; add another</button>'}</div>
@@ -293,7 +295,7 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
     const row = { subject: $('#subj').value, chapter: $('#chap').value.trim(), body: $('#body').value.trim(), options, image_url, marks: Number($('#marks').value) || 4 };
     const r = q ? await sb.from('questions').update(row).eq('id', q.id).select('id').single() : await sb.from('questions').insert(row).select('id').single();
     if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
-    const key = await sb.from('question_keys').upsert({ question_id: r.data.id, correct: Number(correct), solution: $('#sol').value.trim() });
+    const key = await sb.from('question_keys').upsert({ question_id: r.data.id, correct: Number(correct), solution: $('#sol').value.trim(), concept: $('#concept').value.trim() || null, formula: $('#formula').value.trim() || null });
     if (key.error) {
       if (!q) await sb.from('questions').delete().eq('id', r.data.id); // never keep a new question without its answer key
       $('#save').disabled = false; return (msg.textContent = key.error.message);
@@ -484,7 +486,7 @@ async function vTests() {
 async function vPreview(id) {
   if (!id) return go('tests');
   view.innerHTML = '<p class="muted">Loading…</p>';
-  const { data: t, error } = await sb.from('tests').select('*, test_questions(position, questions(*, question_keys(correct, solution)))').eq('id', id).single();
+  const { data: t, error } = await sb.from('tests').select('*, test_questions(position, questions(*, question_keys(correct, solution, concept, formula)))').eq('id', id).single();
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const qs = t.test_questions.sort((a, b) => a.position - b.position).map((x) => x.questions);
   const n = SUBJECTS.map((s) => qs.filter((q) => q.subject === s).length), keyless = qs.filter((q) => !q.question_keys).length;
