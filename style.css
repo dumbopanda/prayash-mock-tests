@@ -664,3 +664,30 @@ details.rv summary .col{min-width:0;flex:1}
 .cmix{display:flex;flex-direction:column;gap:var(--s2)}
 .cm{display:flex;align-items:center;gap:var(--s2);font-size:var(--fs-sm)}.cm span{flex:1;min-width:0}
 .cm .cn{width:3.5rem;min-height:2.25rem;text-align:center;border:1px solid var(--field);border-radius:0.5rem}
+
+/* admin on a phone */
+@media(max-width:640px){
+  .adm:not(.stu) .main .page{padding:1rem 0.75rem 3rem}
+  .adm:not(.stu) .topbar{gap:var(--s2);padding-left:max(var(--s3),env(safe-area-inset-left));padding-right:max(var(--s3),env(safe-area-inset-right))}
+  #goback{white-space:nowrap;flex:none}
+  .crumb{min-width:0;flex:1}.crumb>span,.crumb>a{display:none}.crumb b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .adm:not(.stu) .head{gap:var(--s2)}.adm:not(.stu) .head .title{flex:1 1 100%}
+  .adm:not(.stu) .head>.btn,.adm:not(.stu) .head>.field{flex:1 1 auto;text-align:center}
+  .adm:not(.stu) .head>.grow{display:none}
+  .row>.col{flex:1 1 8rem;min-width:0}.row>.col.x2{flex-basis:100%}
+  .filters{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}.filters .field{width:100%}.filters #fc,.filters #ft{grid-column:1/-1}
+  .tray-head{gap:var(--s2)}.tray-head #bch{flex:1 1 100%;width:100%}.tray-head .btn{flex:1 1 auto}.tray-head .grow{display:none}
+  .adm:not(.stu) .main table{display:block;max-width:100%;overflow-x:auto}
+  /* question bank: one card per question instead of a wide table */
+  #qt table{overflow:visible}#qt tbody,#qt tr,#qt td{display:block}#qt tr:has(th){display:none}
+  #qt tr{position:relative;padding:0.75rem 0 0.75rem 2.25rem;border-top:1px solid var(--rule)}
+  #qt td{border:0;padding:0}#qt td.ck{position:absolute;left:0;top:0.75rem;width:auto}
+  #qt td.ck input{width:1.375rem;height:1.375rem}
+  #qt td.mono{display:inline-block;margin:0.375rem var(--s3) 0 0;color:var(--muted)}
+  #qt td:nth-child(3)::before{content:'Ans '}#qt td:nth-child(4)::before{content:'Diff '}#qt td:nth-child(5)::before{content:'Tests '}
+  #qt td.actions{display:flex;gap:var(--s2);margin-top:var(--s2)}
+}
+@media(max-width:640px){
+  #goback{font-size:0;padding:0;width:var(--tap,2.5rem);min-width:0}#goback::before{content:'‹';font-size:1.5rem;line-height:1}
+  .adm:not(.stu) .main th{letter-spacing:0;padding:var(--s2) 0.375rem}.adm:not(.stu) .main td{padding:0.5rem 0.375rem}
+}
