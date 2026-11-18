@@ -110,7 +110,9 @@ const SUB = { form: ['questions', 'Edit question'], flags: ['results', 'Cheat fl
 const UP = { flags: 'dash', testform: 'tests', preview: 'tests', sheet: 'results', form: 'questions' }; // Back goes here; other pages go to the dashboard
 let ARG;
 function go(v, arg) { ARG = arg; if (location.hash.slice(1) === v) render(); else location.hash = v; }
+let TICK;
 function render() {
+  clearInterval(TICK);
   const v = views[location.hash.slice(1)] ? location.hash.slice(1) : 'dash', arg = ARG; ARG = undefined;
   view.oninput = view.onchange = view.onclick = null;
   const nv = SUB[v]?.[0] ?? v;
@@ -219,9 +221,10 @@ async function vFlags() {
 
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
-  const [ts, r] = await Promise.all([
+  const [ts, r, run] = await Promise.all([
     sb.from('tests').select('id,title,start_at,end_at,duration_min,published').order('start_at', { ascending: false }),
     allAttempts(),
+    sb.from('attempts').select('test_id,started_at,submitted_at').order('started_at', { ascending: false }),
   ]);
   const err = ts.error || r.error;
   if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
@@ -235,10 +238,18 @@ async function vDash() {
   const pts = inP.slice(-8).map((a) => ({ label: day(a.submitted_at), value: pct(a) }));
   const w = Math.max(300, Math.min(900, view.clientWidth - 40));
   const per = `<div class="pseg" id="per" role="group" aria-label="Time period">${[['7', '7 days'], ['30', '30 days'], ['all', 'All']].map(([v, l]) => `<button class="${v === DP ? 'on' : ''}" data-p="${v}" aria-pressed="${v === DP}">${l}</button>`).join('')}</div>`;
-  const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2></div><div class="card hero2">${per}
+  const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2><span class="grow"></span>${per}</div><div class="card hero2">
     ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest</span><span class="v">${pct(last)}%${d ? `<span class="dlt ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</span></div>
       <div class="kpi"><span class="k">Average</span><span class="v">${avg}%</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
       ${areaSvg(pts, w)}` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
+
+  // live strip: a published test she can take right now, and where she is with it
+  const left = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m} min left`);
+  const liveHtml = ts.data.filter((t) => ['Live', 'Open'].includes(statusOf(t))).map((t) => {
+    const a = (run.data ?? []).find((x) => x.test_id === t.id), end = a && Date.parse(a.started_at) + t.duration_min * 60000;
+    const st = !a ? 'Not started' : !a.submitted_at && end > now ? left(Math.max(1, Math.ceil((end - now) / 60000))) : 'Finished';
+    return `<div class="live"><span class="ld" aria-hidden="true"></span><span class="lt"><b>Live</b> · ${esc(t.title)}</span><span class="grow"></span><span class="ls">${st}</span></div>`;
+  }).join('');
 
   const recent = [...all].reverse().slice(0, 5);
   const prevOf = (a) => all.find((x) => x.test_id === a.test_id && x.attempt_no === a.attempt_no - 1);
@@ -254,7 +265,8 @@ async function vDash() {
     </div></section>`;
 
   view.innerHTML = `<div class="head dhead"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span><a class="btn dark" href="#testform">New test</a></div>
-    ${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
+    ${liveHtml}${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
+  TICK = setInterval(() => { if (location.hash.slice(1) === 'dash' && liveHtml.includes('left')) vDash(); }, 60000);
   view.onclick = (e) => {
     const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }

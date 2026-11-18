@@ -994,3 +994,13 @@ svg.area{width:100%;height:auto;display:block}
 }
 @media(min-width:641px){#bact{display:none}}
 @media(max-width:640px){#adm .tray-head #bact,#adm .tray-head #bch{font-weight:400;font-size:.95rem;padding-left:.6rem;padding-right:.3rem}}
+
+/* Live paper strip */
+.live{display:flex;align-items:center;gap:.6rem;background:var(--blue);color:#fff;border-radius:.75rem;padding:.65rem var(--s4);min-width:0}
+.live .ld{width:.6rem;height:.6rem;border-radius:50%;background:#7CF0A8;box-shadow:0 0 0 0 rgba(124,240,168,.6);animation:lp 1.8s infinite;flex:none}
+@keyframes lp{70%{box-shadow:0 0 0 .5rem rgba(124,240,168,0)}100%{box-shadow:0 0 0 0 rgba(124,240,168,0)}}
+@media(prefers-reduced-motion:reduce){.live .ld{animation:none}}
+.live .lt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live .ls{flex:none;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:.15rem .65rem;font-size:var(--fs-sm)}
+.sec-h .pseg{margin-left:auto}
+@media(max-width:640px){#adm .sec-h .pseg button{min-height:30px;font-size:.85rem;padding:0 .55rem}}
