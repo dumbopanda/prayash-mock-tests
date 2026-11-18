@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Admin · Mock Tests</title>
-<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jakarta.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="admin.webmanifest">
 <meta name="theme-color" content="#1E4ED8">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="style.css">
+<style>@font-face{font-family:Inter;src:url(fonts/jakarta.woff2) format('woff2');font-weight:200 800;font-display:swap}</style>
 </head>
 <body>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -118,7 +119,7 @@ function render() {
   if (SUB[v]) n = `<a class="link" href="#${nv}">${n}</a><span>/</span><b>${SUB[v][1]}</b>`; else n = `<b>${n}</b>`;
   $('#crumb').innerHTML = `<span>${g}</span><span>/</span>${n}`;
   document.querySelectorAll('[data-b]').forEach((a) => { const on = a.dataset.b === (UP[v] ?? v); a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
-  $('#goback').hidden = v === 'dash';
+  $('#goback').hidden = BNAV.some((b) => b[0] === v); // no back on the five main tabs
   $('#goback').onclick = () => go(UP[v] ?? 'dash'); // one level up, the same on every page
   drawer(false);
   scrollTo(0, 0);
@@ -675,8 +676,7 @@ async function studentData(sid) {
   sid ??= studs[0].id;
   const r = await sb.rpc('get_progress', { p_student: sid });
   if (r.error) return { error: r.error.message };
-  const picker = studs.length > 1 ? `<select id="stu" class="field auto noprint" aria-label="Student">${studs.map((s) => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : '';
-  return { sid, name: studs.find((s) => s.id === sid).name, picker, ...r.data };
+  return { sid, name: studs.find((s) => s.id === sid).name, ...r.data };
 }
 
 async function vResults(sid) {
@@ -684,7 +684,7 @@ async function vResults(sid) {
   if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
   const { data: ts } = await sb.from('tests').select('*');
   const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
-  view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted desc">Every submitted attempt. Open one for subject scores and flags.</span></div><span class="grow"></span>${d.picker}</div>
+  view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted desc">Every submitted attempt. Open one for subject scores and flags.</span></div></div>
     <div class="tray"><div class="row tray-head"><span class="ttl">${plural(d.attempts.length, 'attempt')}</span></div><div class="card list">${[...d.attempts].reverse().map((a) => {
       const rows = d.answers.filter((r) => r.attempt_id === a.id), neg = +(testOf(a.test_id).neg_marks ?? 1);
       const subs = subjectStats(rows, [a]).filter((s) => s.total).map((s) => ({ ...s, score: rows.filter((r) => r.subject === s.subject && r.chosen === r.correct).reduce((n, r) => n + r.marks, 0) - s.wrong * neg, max: rows.filter((r) => r.subject === s.subject).reduce((n, r) => n + r.marks, 0) }));
@@ -700,7 +700,6 @@ async function vResults(sid) {
         ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}
         <div class="row"><button class="btn sm" data-sheet="${a.test_id}" data-att="${a.id}">Answer sheet</button></div></div></details>`;
     }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></div>`;
-  $('#stu')?.addEventListener('change', (e) => vResults(e.target.value));
   view.onclick = async (e) => {
     const b = e.target.closest('[data-sheet]'); if (b) go('sheet', { test: b.dataset.sheet, sid: d.sid, attempt: b.dataset.att });
   };
@@ -728,15 +727,14 @@ async function vSheet(arg) {
   sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
 }
 
-async function vReport(sid, days = 7) {
+async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
   const d = await studentData(sid);
   if (d.error) return (view.innerHTML = `<h1>Report</h1><p class="muted">${esc(d.error)}</p>`);
-  const since = Date.now() - days * 864e5;
+  const since = days === 'all' ? 0 : Date.now() - days * 864e5, from = days === 'all' ? (d.attempts[0] ? Date.parse(d.attempts[0].submitted_at) : Date.now()) : since;
   const rep = periodReport(d.attempts, d.answers, since);
   const day = (ms) => new Date(ms).toLocaleDateString([], { dateStyle: 'medium' });
-  view.innerHTML = `<div class="head"><div class="title"><h1>${days === 7 ? 'Weekly' : days + '-day'} report · ${esc(d.name)}</h1><span class="muted">${day(since)} – ${day(Date.now())}</span></div><span class="grow"></span>${d.picker}
-      <select id="days" class="field auto noprint" aria-label="Period">${[7, 14, 30].map((n) => `<option value="${n}" ${n === days ? 'selected' : ''}>Last ${n} days</option>`).join('')}</select>
-      <button class="btn dark noprint" id="print">Print / Save as PDF</button></div>
+  view.innerHTML = `<div class="head"><div class="title"><h1>${days === 7 ? 'Weekly' : days === 'all' ? 'All-time' : days + '-day'} report</h1><span class="muted">${day(from)} – ${day(Date.now())}</span></div></div>
+    <div class="row noprint repbar"><div class="pseg" id="days" role="group" aria-label="Period">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], ['all', 'All']].map(([n, l]) => `<button class="${n === days ? 'on' : ''}" data-d="${n}" aria-pressed="${n === days}">${l}</button>`).join('')}</div><span class="grow"></span><button class="btn dark" id="print">Print / PDF</button></div>
     ${rep.tests ? `<div class="stats">${stat('Tests taken', rep.tests)}${stat('Average', rep.avg + '%')}${stat('Best', rep.best + '%')}${stat('Flags', rep.flags.fullscreen_exit + rep.flags.tab_hidden, `${plural(rep.flags.fullscreen_exit, 'exit')} · ${plural(rep.flags.tab_hidden, 'switch', 'switches')}`)}</div>
       <div class="tray"><span class="lbl">Scores</span><div class="card">${trendSvg(rep.attempts.slice(-8).map((a) => ({ label: new Date(a.submitted_at).toLocaleDateString([], { day: 'numeric', month: 'short' }), value: pct(a) })), Math.max(300, Math.min(900, view.clientWidth - 40)), true)}</div></div>
       <div class="tray"><span class="lbl">Summary</span><div class="card">${rep.strongest ? `Strongest subject: <b>${cap(rep.strongest.subject)}</b> (${rep.strongest.acc}% accuracy). ` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `Weakest: <b>${cap(rep.weakest.subject)}</b> (${rep.weakest.acc}%). ` : ''}${rep.strategies[0] ? `Best strategy so far: <b>${esc(stratName(rep.strategies[0].strategy))}</b> (${rep.strategies[0].avg}% average).` : ''}</div></div>
@@ -744,8 +742,7 @@ async function vReport(sid, days = 7) {
         ${rep.subjects.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.perQ)}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td></tr>`).join('')}</table></div></div>
       <div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${rep.weak.map((c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div><span class="num-r">${c.right}/${c.total}</span></div>`).join('') || '<p class="muted li">None yet</p>'}</div></div></div>`
       : '<p class="muted">No tests submitted in this period.</p>'}`;
-  $('#stu')?.addEventListener('change', (e) => vReport(e.target.value, days));
-  $('#days').onchange = (e) => vReport(d.sid, Number(e.target.value));
+  $('#days').onclick = (e) => { const b = e.target.closest('[data-d]'); if (b) vReport(d.sid, b.dataset.d === 'all' ? 'all' : Number(b.dataset.d)); };
   $('#print').onclick = () => window.print();
 }
 
