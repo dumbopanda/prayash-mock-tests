@@ -31,7 +31,7 @@
 </div>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
-import { SUBJECTS, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
+import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
 try { screen.orientation?.unlock?.(); } catch { /* not supported */ } // admin: any orientation; only her test pages lock to landscape
 const $ = (s) => document.querySelector(s);
@@ -171,38 +171,45 @@ async function vDash() {
 }
 
 /* ---------- Question bank ---------- */
-const F = { subject: '', chapter: '', text: '', use: '', limit: 200 }; // bank filters, kept while moving between pages
+const F = { subject: '', chapter: '', text: '', use: '', band: '', flag: '', limit: 200 }; // bank filters, kept while moving between pages
 async function vQuestions() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const { data, error } = await fetchAll(() => sb.from('questions').select('*, question_keys(correct, solution, concept, formula), test_questions(test_id)').order('created_at', { ascending: false }));
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
-  const sel = new Set();
+  const sel = new Set(), cuts = bandCuts(data.filter((r) => r.in_syllabus && !r.hold).map((r) => r.difficulty));
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Question bank</h1><span class="muted">${data.length} in the bank · ${data.filter((r) => !r.test_questions.length).length} not in any test</span></div><span class="grow"></span>
+    <div class="head"><div class="title"><h1>Question bank</h1><span class="muted">${data.length} in the bank · ${data.filter((r) => r.in_syllabus && !r.hold).length} usable · ${data.filter((r) => !r.in_syllabus).length} out of syllabus · ${data.filter((r) => r.chapter_review).length} need a chapter check</span></div><span class="grow"></span>
       <a class="btn" href="#import">Import CSV</a><a class="btn dark" href="#form">Add question</a></div>
     <div class="row filters">
       <select id="fs" class="field auto" aria-label="Subject"><option value="">All subjects</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === F.subject ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
       <select id="fc" class="field auto" aria-label="Chapter"></select>
       <select id="fu" class="field auto" aria-label="Use"><option value="">Used or not</option><option value="unused" ${F.use === 'unused' ? 'selected' : ''}>Not in any test</option><option value="used" ${F.use === 'used' ? 'selected' : ''}>In a test</option></select>
+      <select id="fb" class="field auto" aria-label="Difficulty"><option value="">Any difficulty</option>${['easy', 'medium', 'hard'].map((b) => `<option value="${b}" ${b === F.band ? 'selected' : ''}>${cap(b)}</option>`).join('')}</select>
+      <select id="fg" class="field auto" aria-label="Status"><option value="">Any status</option>${[['in', 'In syllabus, usable'], ['out', 'Out of syllabus'], ['review', 'Chapter needs review'], ['hold', 'On hold']].map(([v, l]) => `<option value="${v}" ${v === F.flag ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <input id="ft" class="field grow" type="search" placeholder="Search question text" value="${esc(F.text)}" aria-label="Search"></div>
     <div class="tray"><div class="row tray-head"><span class="ttl" id="cnt"></span><span class="grow"></span>
-      <button class="btn sm" id="selall">Select all shown</button><button class="btn sm danger" id="bulk" disabled>Delete selected</button></div>
+      <button class="btn sm" id="selall">Select all shown</button>
+      <select id="bch" class="field auto" aria-label="Move selected to chapter" disabled><option value="">Move to chapter…</option>${SUBJECTS.map((s) => `<optgroup label="${cap(s)}">${CHAPTERS[s].map((c) => `<option value="${s}|${esc(c)}">${esc(c)}</option>`).join('')}</optgroup>`).join('')}</select>
+      <button class="btn sm" id="bout" disabled>Out of syllabus</button><button class="btn sm" id="bin" disabled>Back in syllabus</button><button class="btn sm" id="bhold" disabled>Release hold</button>
+      <button class="btn sm danger" id="bulk" disabled>Delete selected</button></div>
       <div class="card tbl" id="qt"></div></div>`;
   const shown = () => data.filter((r) => (!F.subject || r.subject === F.subject) && (!F.chapter || r.chapter === F.chapter)
-    && (!F.use || (F.use === 'used') === r.test_questions.length > 0) && (!F.text || r.body.toLowerCase().includes(F.text.toLowerCase())));
+    && (!F.use || (F.use === 'used') === r.test_questions.length > 0) && (!F.text || r.body.toLowerCase().includes(F.text.toLowerCase()))
+    && (!F.band || bandOf(r.difficulty, cuts) === F.band)
+    && (!F.flag || (F.flag === 'in' ? r.in_syllabus && !r.hold : F.flag === 'out' ? !r.in_syllabus : F.flag === 'review' ? r.chapter_review : r.hold)));
   const chapters = () => { const l = [...new Set(data.filter((r) => !F.subject || r.subject === F.subject).map((r) => r.chapter).filter(Boolean))].sort();
     if (!l.includes(F.chapter)) F.chapter = '';
     $('#fc').innerHTML = `<option value="">All chapters</option>${l.map((c) => `<option ${c === F.chapter ? 'selected' : ''}>${esc(c)}</option>`).join('')}`; };
   const table = () => {
     const l = shown();
     $('#cnt').textContent = `${plural(l.length, 'question')} shown${sel.size ? ` · ${sel.size} selected` : ''}`;
-    $('#bulk').disabled = !sel.size;
-    $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Question</th><th>Ans</th><th>Tests</th><th></th></tr>
+    ['#bulk', '#bch', '#bout', '#bin', '#bhold'].forEach((i) => ($(i).disabled = !sel.size));
+    $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Question</th><th>Ans</th><th title="1-100, higher is harder">Diff</th><th>Tests</th><th></th></tr>
       ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td>
-        <td class="qcell"><span class="qline">${fmt(r.body.slice(0, 160))}${r.body.length > 160 ? '…' : ''}</span><span class="qmeta">${cap(r.subject)} · ${esc(r.chapter) || 'No chapter'}${r.image_url ? ' <span class="chip">Figure</span>' : ''}${r.hold ? ' <span class="chip warn">On hold</span>' : ''}</span></td>
-        <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono">${r.test_questions.length || '–'}</td>
+        <td class="qcell"><span class="qline">${fmt(r.body.slice(0, 160))}${r.body.length > 160 ? '…' : ''}</span><span class="qmeta">${cap(r.subject)} · ${esc(r.chapter) || 'No chapter'}${r.image_url ? ' <span class="chip">Figure</span>' : ''}${r.hold ? ' <span class="chip warn">On hold</span>' : ''}${r.in_syllabus ? '' : ' <span class="chip warn">Out of syllabus</span>'}${r.chapter_review ? ' <span class="chip">Check chapter</span>' : ''}</span></td>
+        <td class="mono">${r.question_keys ? 'ABCD'[r.question_keys.correct] : '<span class="err">none</span>'}</td><td class="mono" title="${esc(bandOf(r.difficulty, cuts))}">${r.difficulty ?? '–'}</td><td class="mono">${r.test_questions.length || '–'}</td>
         <td class="actions"><button class="btn sm" data-e="${r.id}">Edit</button>${r.test_questions.length ? '' : `<button class="btn sm danger" data-d="${r.id}">Delete</button>`}</td></tr>`).join('')
-        || '<tr><td colspan="5" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
+        || '<tr><td colspan="6" class="muted">No questions match. Import a CSV or change the filters.</td></tr>'}</table>
       ${l.length > F.limit ? `<div class="row li"><span class="muted">Showing ${F.limit} of ${l.length}.</span><button class="btn sm" id="more">Show all</button></div>` : ''}`;
     $('#more')?.addEventListener('click', () => { F.limit = Infinity; table(); });
   };
@@ -219,11 +226,25 @@ async function vQuestions() {
     toast(`Deleted ${plural(free.length, 'question')}`);
     vQuestions();
   };
+  // bulk edits: only touches the selected rows, in chunks of 100 so the URL stays short
+  const bulk = async (patch, ids, msg) => {
+    for (let i = 0; i < ids.length; i += 100) { const { error } = await sb.from('questions').update(patch).in('id', ids.slice(i, i + 100)); if (error) return toast(error.message); }
+    toast(msg); vQuestions();
+  };
+  const bulkChapter = (v) => {
+    const [subj, ch] = v.split('|'), ids = [...sel].filter((id) => data.find((r) => r.id === id).subject === subj), skip = sel.size - ids.length;
+    if (!ids.length) { $('#bch').value = ''; return toast(`None of the selected questions are ${cap(subj)}.`); }
+    if (!confirm(`Move ${plural(ids.length, 'question')} to "${ch}"?${skip ? ` ${skip} of another subject will be left as they are.` : ''}`)) { $('#bch').value = ''; return; }
+    bulk({ chapter: ch, source_chapter: ch, chapter_review: false }, ids, `Moved ${plural(ids.length, 'question')}`);
+  };
   view.onchange = (e) => {
     const t = e.target;
     if (t.id === 'fs') { F.subject = t.value; chapters(); }
     else if (t.id === 'fc') F.chapter = t.value;
     else if (t.id === 'fu') F.use = t.value;
+    else if (t.id === 'fb') F.band = t.value;
+    else if (t.id === 'fg') F.flag = t.value;
+    else if (t.id === 'bch') return t.value && bulkChapter(t.value);
     else if (t.dataset.s) t.checked ? sel.add(t.dataset.s) : sel.delete(t.dataset.s);
     table();
   };
@@ -233,6 +254,12 @@ async function vQuestions() {
     if (b.dataset.e) go('form', data.find((r) => r.id === b.dataset.e));
     else if (b.dataset.d) del([b.dataset.d]);
     else if (b.id === 'bulk') del([...sel]);
+    else if (b.id === 'bout') bulk({ in_syllabus: false }, [...sel], 'Marked out of syllabus');
+    else if (b.id === 'bin') {
+      const ok = [...sel].filter((id) => { const r = data.find((x) => x.id === id); return CHAPTERS[r.subject].includes(r.chapter); });
+      if (!ok.length) return toast('Give these questions a current chapter first (Move to chapter), then bring them back.');
+      bulk({ in_syllabus: true, chapter_review: false }, ok, `${plural(ok.length, 'question')} back in the syllabus${ok.length < sel.size ? ` · ${sel.size - ok.length} skipped, no current chapter` : ''}`);
+    } else if (b.id === 'bhold' && confirm('Held questions have an unconfirmed key or figure. Release only after you have checked the answer. Release now?')) bulk({ hold: false }, [...sel], 'Hold released');
     else if (b.id === 'selall') { shown().slice(0, F.limit).forEach((r) => sel.add(r.id)); table(); }
   };
   chapters(); table();
@@ -248,8 +275,9 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
     <div class="split"><div class="tray"><span class="lbl">Question</span><div class="card stack">
       <div class="row">
         <div class="col"><label class="lbl" for="subj">Subject</label><select id="subj" class="field">${SUBJECTS.map((s) => `<option value="${s}" ${(q?.subject ?? keep.subject) === s ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select></div>
-        <div class="col x2"><label class="lbl" for="chap">Chapter</label><input id="chap" class="field" list="chaps" value="${esc(q?.chapter ?? keep.chapter ?? '')}"><datalist id="chaps"></datalist></div>
+        <div class="col x2"><label class="lbl" for="chap">Chapter</label><select id="chap" class="field"></select></div>
         <div class="col s"><label class="lbl" for="marks">Marks</label><input id="marks" class="field mono" type="number" min="1" value="${q?.marks ?? 4}"></div>
+        <div class="col s"><label class="lbl" for="diff" title="1 easiest, 100 hardest">Difficulty</label><input id="diff" class="field mono" type="number" min="1" max="100" placeholder="1-100" value="${q?.difficulty ?? ''}"></div>
       </div>
       <div class="col"><label class="lbl" for="body">Question text</label><textarea id="body" class="field" rows="4">${esc(q?.body ?? '')}</textarea>
         <span class="muted">x^2 power · x^{-3} · H_2O subscript · sqrt(10) root</span></div>
@@ -273,10 +301,14 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
       ${q?.image_url && !$('#noimg')?.checked ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : ''}
       ${o.map((t, i) => `<div class="optline ${i === c ? 'right' : ''}"><span class="key">${'ABCD'[i]}</span><span class="grow">${fmt(t)}</span>${i === c ? '<span>✓ correct</span>' : ''}</div>`).join('')}</div>`;
   };
-  view.oninput = view.onchange = preview;
+  // chapters come from the fixed current list; an old name outside it stays selectable until she picks a current one
+  const fillChap = (want) => {
+    const sub = $('#subj').value, cur = want ?? $('#chap').value, l = CHAPTERS[sub];
+    $('#chap').innerHTML = `<option value="">Choose a chapter</option>${l.map((c) => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}${cur && !l.includes(cur) ? `<option selected value="${esc(cur)}">${esc(cur)} (not a current chapter)</option>` : ''}`;
+  };
+  fillChap(q?.chapter ?? keep.chapter ?? '');
+  view.oninput = view.onchange = (e) => { if (e?.target?.id === 'subj') fillChap(''); preview(); };
   preview();
-  // suggest chapter names already in the bank, so spellings stay the same
-  fetchAll(() => sb.from('questions').select('chapter')).then(({ data }) => { const d = $('#chaps'); if (d && data) d.innerHTML = [...new Set(data.map((x) => x.chapter).filter(Boolean))].sort().map((c) => `<option value="${esc(c)}">`).join(''); });
 
   async function save(again) {
     const msg = $('#msg'); msg.textContent = '';
@@ -285,6 +317,8 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
     if (!$('#body').value.trim()) return (msg.textContent = 'Write the question.');
     if (options.some((x) => !x)) return (msg.textContent = 'Fill all four options.');
     if (correct === undefined) return (msg.textContent = 'Mark the correct option.');
+    if (!CHAPTERS[$('#subj').value].includes($('#chap').value)) return (msg.textContent = 'Choose a current chapter.');
+    const dv = $('#diff').value.trim(); if (dv && !(dv >= 1 && dv <= 100)) return (msg.textContent = 'Difficulty is 1 to 100, or leave it empty.');
     $('#save').disabled = true;
     let image_url = $('#noimg')?.checked ? null : q?.image_url ?? null;
     const file = $('#img').files[0];
@@ -294,7 +328,7 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
       if (up.error) { $('#save').disabled = false; return (msg.textContent = up.error.message); }
       image_url = sb.storage.from(IMG).getPublicUrl(path).data.publicUrl;
     }
-    const row = { subject: $('#subj').value, chapter: $('#chap').value.trim(), body: $('#body').value.trim(), options, image_url, marks: Number($('#marks').value) || 4 };
+    const row = { subject: $('#subj').value, chapter: $('#chap').value, source_chapter: $('#chap').value, chapter_review: false, in_syllabus: true, difficulty: dv ? Math.round(dv) : null, body: $('#body').value.trim(), options, image_url, marks: Number($('#marks').value) || 4 };
     const r = q ? await sb.from('questions').update(row).eq('id', q.id).select('id').single() : await sb.from('questions').insert(row).select('id').single();
     if (r.error) { $('#save').disabled = false; return (msg.textContent = r.error.message); }
     const key = await sb.from('question_keys').upsert({ question_id: r.data.id, correct: Number(correct), solution: $('#sol').value.trim(), concept: $('#concept').value.trim() || null, formula: $('#formula').value.trim() || null });
@@ -351,7 +385,7 @@ function vImport() {
     const r = readQuestions(txt);
     const files = new Map([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f]));
     const known = new Map(bank.map((b) => [dupKey(b.subject, b.body), b]));
-    const chaps = new Set(bank.map((b) => b.chapter)), seen = new Set();
+    const seen = new Set();
     r.ok.forEach((q) => {
       const k = dupKey(q.subject, q.body), ex = known.get(k);
       q.existing = ex?.id ?? null;
@@ -366,8 +400,15 @@ function vImport() {
     });
     const used = new Set(r.ok.map((q) => q.image?.toLowerCase()).filter(Boolean)), extra = [...files.keys()].filter((n) => !used.has(n));
     if (extra.length) r.warnings.push(`Pictures not named in the CSV: ${extra.join(', ')}`);
-    const newCh = [...new Set(r.ok.filter((q) => q.chapter && !chaps.has(q.chapter)).map((q) => `${q.chapter} (${cap(q.subject)})`))];
-    if (bank.length && newCh.length) r.warnings.push(`New chapter names: ${newCh.join('; ')}. Check they are spelt as in earlier papers.`);
+    // every question needs a current chapter; dropped ones (Heredity) and unknown names are errors, never created on the fly
+    r.warnings = r.warnings.filter((w) => !/no chapter/.test(w));
+    r.ok.forEach((q) => {
+      if (CHAPTERS[q.subject]?.includes(q.chapter)) return;
+      r.errors.push(!q.chapter ? `Row ${q.row}: chapter is empty. Use one of the current ${cap(q.subject)} chapters.`
+        : /^heredity/i.test(q.chapter) ? `Row ${q.row}: "${q.chapter}" is not in the syllabus any more.`
+        : `Row ${q.row}: "${q.chapter}" is not a current ${cap(q.subject)} chapter (${CHAPTERS[q.subject]?.join(', ')}).`);
+    });
+    if (r.ok.length) r.warnings.push('Imported questions have no difficulty score yet. Set it in the question bank so the paper builder can use them.');
     const n = SUBJECTS.map((s) => r.ok.filter((q) => q.subject === s).length);
     if (n.some((c) => c !== 15)) r.warnings.push(`Subjects have ${n.join(' / ')} questions (P / C / M / B), not 15 each.`);
     const rowNo = (x) => +(/^Row (\d+)/.exec(x)?.[1] ?? 1e9);
@@ -419,7 +460,7 @@ function vImport() {
     const base = Date.now();
     fresh.forEach((q) => (q.id = crypto.randomUUID()));
     if (fresh.length) {
-      const ins = await sb.from('questions').insert(fresh.map((q, i) => ({ id: q.id, subject: q.subject, chapter: q.chapter, body: q.body, options: q.options, marks: q.marks,
+      const ins = await sb.from('questions').insert(fresh.map((q, i) => ({ id: q.id, subject: q.subject, chapter: q.chapter, source_chapter: q.chapter, body: q.body, options: q.options, marks: q.marks,
         image_url: q.image ? urls[q.image.toLowerCase()] : null, created_at: new Date(base + i).toISOString() })));
       if (ins.error) { await undo(); return fail(`Nothing imported: ${ins.error.message}`); }
       const keys = await sb.from('question_keys').insert(fresh.map((q) => ({ question_id: q.id, correct: q.correct, solution: q.solution })));
@@ -522,7 +563,7 @@ async function vPreview(id) {
 async function vTestForm(t) {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [{ data: qs }, { data: use }, { count: attempts }] = await Promise.all([
-    fetchAll(() => sb.from('questions').select('id,subject,chapter,body,hold').order('created_at')),
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,body,hold,in_syllabus,difficulty').order('created_at')),
     fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
   ]);
@@ -530,7 +571,7 @@ async function vTestForm(t) {
   if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
   const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
-  const held = qs.filter((x) => x.hold && !chosen.has(x.id)).length;
+  const held = qs.filter((x) => (x.hold || !x.in_syllabus) && !chosen.has(x.id)).length, cuts = bandCuts(qs.filter((x) => x.in_syllabus && !x.hold).map((x) => x.difficulty));
   view.innerHTML = `
     <div class="head"><div class="title"><h1>${t ? 'Edit' : 'New'} test</h1><span class="muted">Set the schedule and scoring, then pick 15 questions for each subject.</span></div></div>
     ${attempts ? '<p class="note">She has taken this test, so its questions and negative marks are locked. Title, time, attempts and publishing can still change.</p>' : ''}
@@ -553,7 +594,11 @@ async function vTestForm(t) {
         </div></div>
         <div class="tray"><div class="row tray-head"><span class="ttl">Strategies she can pick</span></div><div class="card">
           <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div></div>
-        <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${held} on hold, not shown</span><span class="grow"></span>
+        <div class="tray"><div class="row tray-head"><span class="ttl">Build by chapter and difficulty</span><span class="muted">How many from each chapter, then Auto-pick</span><span class="grow"></span>
+          <select id="bd" class="field auto" aria-label="Difficulty"><option value="">Mixed difficulty</option>${['easy', 'medium', 'hard'].map((b) => `<option value="${b}">${cap(b)} questions</option>`).join('')}</select>
+          <button class="btn sm" id="even">Even split</button><button class="btn sm dark" id="auto">Auto-pick</button></div>
+          <div class="card cmixes">${SUBJECTS.map((s) => `<div class="cmix"><div class="row tight"><b>${cap(s)}</b><span class="grow"></span><span class="mono" id="cm-${s}">0 / 15</span></div>${CHAPTERS[s].map((c) => `<label class="cm"><span>${esc(c)}</span><input type="number" class="cn mono" min="0" max="15" data-s="${s}" data-c="${esc(c)}" value="0" aria-label="${esc(c)}"></label>`).join('')}</div>`).join('')}</div></div>
+        <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${held} on hold or out of syllabus, not shown</span><span class="grow"></span>
           <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
           <div class="card flush"><div class="row ptool">
             <div class="tabs" role="tablist">${SUBJECTS.map((s, i) => `<button type="button" class="tab ${i ? '' : 'on'}" data-tab="${s}">${cap(s)} <span class="mono"><span class="n-${s}">0</span>/15</span></button>`).join('')}</div>
@@ -561,8 +606,8 @@ async function vTestForm(t) {
             <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
             <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label></div>
           ${SUBJECTS.map((s, i) => `
-          <div class="pickcol" data-s="${s}" ${i ? 'hidden' : ''}><div class="list pick">${qs.filter((x) => x.subject === s && (!x.hold || chosen.has(x.id))).map((x) => `
-            <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> ${fmt(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted li">No questions.</span>'}</div></div>`).join('')}
+          <div class="pickcol" data-s="${s}" ${i ? 'hidden' : ''}><div class="list pick">${qs.filter((x) => x.subject === s && ((!x.hold && x.in_syllabus) || chosen.has(x.id))).map((x) => `
+            <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> <span class="mono muted" title="difficulty ${esc(bandOf(x.difficulty, cuts))}">${x.difficulty ?? '–'}</span> ${fmt(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted li">No questions.</span>'}</div></div>`).join('')}
           </div></div>
       </div>
       <aside class="te-side"><div class="tray"><div class="row tray-head"><span class="ttl">Summary</span></div><div class="card stack">
@@ -592,7 +637,38 @@ async function vTestForm(t) {
   view.onchange = () => { count(); filter(); winTxt(); };
   view.oninput = (e) => { if (e.target.id === 'qf') filter(); else winTxt(); };
   count(); winTxt();
-  if (attempts) view.querySelectorAll('.q, #neg, #fill').forEach((x) => (x.disabled = true));
+  // chapter mix: start from what the test already has, else an even split
+  const meta = new Map(qs.map((x) => [x.id, x])), cn = (s, c) => view.querySelector(`.cn[data-s="${s}"][data-c="${CSS.escape(c)}"]`) ?? [...view.querySelectorAll(`.cn[data-s=${s}]`)].find((i) => i.dataset.c === c);
+  const mixSum = (s) => [...view.querySelectorAll(`.cn[data-s=${s}]`)].reduce((a, i) => a + (Number(i.value) || 0), 0);
+  const showMix = () => SUBJECTS.forEach((s) => { const n = mixSum(s), e = $('#cm-' + s); e.textContent = `${n} / 15`; e.classList.toggle('err', n !== 15); });
+  const evenMix = () => SUBJECTS.forEach((s) => { const l = [...CHAPTERS[s]].sort(() => Math.random() - 0.5), base = Math.floor(15 / l.length), extra = 15 % l.length;
+    l.forEach((c, i) => { const el = [...view.querySelectorAll(`.cn[data-s=${s}]`)].find((x) => x.dataset.c === c); el.value = base + (i < extra ? 1 : 0); }); });
+  if (chosen.size) [...chosen].forEach((id) => { const q = meta.get(id), el = q && [...view.querySelectorAll(`.cn[data-s=${q.subject}]`)].find((x) => x.dataset.c === q.chapter); if (el) el.value = Number(el.value) + 1; });
+  else evenMix();
+  showMix();
+  view.addEventListener('input', (e) => { if (e.target.classList?.contains('cn')) showMix(); });
+  $('#even').onclick = () => { evenMix(); showMix(); };
+  $('#auto').onclick = () => {
+    const bad = SUBJECTS.filter((s) => mixSum(s) !== 15);
+    if (bad.length) return toast(`Chapter numbers must add up to 15 for ${bad.map(cap).join(', ')}.`);
+    const target = $('#bd').value, rnd = () => Math.random() - 0.5, lacks = [];
+    let reused = 0, off = 0;
+    SUBJECTS.forEach((s) => {
+      const boxes = [...view.querySelectorAll(`.q[data-s=${s}]`)];
+      boxes.forEach((b) => (b.checked = false));
+      [...view.querySelectorAll(`.cn[data-s=${s}]`)].forEach((inp) => {
+        let need = Number(inp.value) || 0; if (!need) return;
+        const pool = boxes.filter((b) => meta.get(b.value).chapter === inp.dataset.c && meta.get(b.value).in_syllabus && !meta.get(b.value).hold)
+          .map((b) => { const q = meta.get(b.value), miss = target && bandOf(q.difficulty, cuts) !== target ? 1 : 0; return { b, miss, used: elsewhere.get(b.value) || 0, r: Math.random() }; })
+          .sort((x, y) => x.miss - y.miss || (x.used > 0) - (y.used > 0) || x.r - y.r);
+        const take = pool.slice(0, need); take.forEach((o) => { o.b.checked = true; reused += o.used ? 1 : 0; off += o.miss; });
+        if (take.length < need) lacks.push(`${inp.dataset.c} ${need - take.length} short`);
+      });
+    });
+    count(); filter();
+    toast(`Picked.${off ? ` ${off} are outside the ${target} band (too few in the bank).` : ''}${reused ? ` ${reused} already used in other tests.` : ''}${lacks.length ? ` Short: ${lacks.join(', ')}.` : ''}`);
+  };
+  if (attempts) view.querySelectorAll('.q, #neg, #fill, #auto, #even, .cn, #bd').forEach((x) => (x.disabled = true));
   $('#fill').onclick = () => {
     const short = [];
     SUBJECTS.forEach((s) => {

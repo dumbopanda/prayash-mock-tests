@@ -658,3 +658,9 @@ details.rv summary .col{min-width:0;flex:1}
 .tacts{margin-top:auto;padding-top:var(--s2);display:flex;gap:var(--s2)}.tacts .btn{flex:1}
 @media(max-width:700px){.tbanner{flex-wrap:wrap}}
 .qblock .src{margin:var(--s2) 0 0;font-size:var(--fs-xs);color:var(--muted);font-family:var(--mono)}
+
+/* paper builder */
+.cmixes{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:var(--s5)}
+.cmix{display:flex;flex-direction:column;gap:var(--s2)}
+.cm{display:flex;align-items:center;gap:var(--s2);font-size:var(--fs-sm)}.cm span{flex:1;min-width:0}
+.cm .cn{width:3.5rem;min-height:2.25rem;text-align:center;border:1px solid var(--field);border-radius:0.5rem}

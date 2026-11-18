@@ -1,6 +1,19 @@
 // Pure helpers shared by admin and student pages (no network, testable in node).
 
 export const SUBJECTS = ['physics', 'chemistry', 'mathematics', 'biology'];
+// The current Class 10 chapters. Heredity and the other dropped chapters are not here on purpose.
+export const CHAPTERS = {
+  physics: ['Light - Reflection and Refraction', 'Human Eye and Colourful World', 'Electricity', 'Magnetic Effects of Electric Current'],
+  chemistry: ['Chemical Reactions and Equations', 'Acids, Bases and Salts', 'Metals and Non-metals', 'Carbon and its Compounds'],
+  mathematics: ['Real Numbers', 'Polynomials', 'Pair of Linear Equations', 'Quadratic Equations', 'Arithmetic Progressions', 'Triangles', 'Coordinate Geometry', 'Introduction to Trigonometry', 'Some Applications of Trigonometry', 'Circles', 'Areas Related to Circles', 'Surface Areas and Volumes', 'Statistics', 'Probability'],
+  biology: ['Life Processes', 'Control and Coordination', 'How do Organisms Reproduce', 'Our Environment'],
+};
+// Difficulty bands from the bank itself (scores bunch low, so fixed thirds would leave "hard" empty): easy = lower third, hard = upper third
+export function bandCuts(scores) {
+  const s = scores.filter((x) => x != null).sort((a, b) => a - b);
+  return s.length ? [s[Math.floor(s.length / 3)], s[Math.floor((2 * s.length) / 3)]] : [33, 66];
+}
+export const bandOf = (d, [lo, hi]) => (d == null ? '' : d <= lo ? 'easy' : d <= hi ? 'medium' : 'hard');
 // key: [name, what she does, timing]
 export const STRATEGIES = {
   subject: ['Subject by subject', 'One subject at a time. Move on when done. No going back.', 'Alerts every 30 min'],
