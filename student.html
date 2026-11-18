@@ -100,6 +100,7 @@ const shell = (on, title, body, { back = false, extra = '' } = {}) => `<div clas
   <main class="main"><div class="page">${body}</div></main></div></div>`;
 
 /* ================= Home ================= */
+let HOME = null, TF = 'all'; // tests + her attempts for the list; TF = filter chip
 async function home() {
   document.body.classList.remove('exam');
   const me = await currentUser();
@@ -112,20 +113,42 @@ async function home() {
   ]);
   const saved = Object.keys(localStorage).filter((k) => k.startsWith('paper.')).map((k) => read(k).test);
   const tests = (t.error ? saved : t.data).sort((x, y) => Date.parse(y.start_at) - Date.parse(x.start_at)); // newest first
-  const doneOf = (id) => (a.data?.attempts ?? []).filter((x) => x.test_id === id);
-  const row = (x) => {
-    const d = doneOf(x.id), w = windowOf(x, Date.now()), open = Date.now() >= w.start - 15 * 60000, left = (x.max_attempts ?? 1) - d.length;
-    const act = !left ? '' : w.closed ? '<span class="chip">Closed</span>' : open || read('paper.' + x.id) ? `<button class="btn dark" data-a="open" data-id="${x.id}">${d.length ? `Retake · ${left} left` : 'Start'}</button>`
-      : `<span class="chip">Opens ${when(w.start)}</span>`;
-    const best = d.length ? Math.max(...d.map((z) => z.score)) : 0;
-    return `<div class="li trow"><div class="col"><b class="it">${esc(x.title)}</b>
-      <span class="meta">${when(w.start)} · ${x.duration_min} min${w.lastStart && !w.closed ? ` · start by ${when(w.lastStart)}` : ''}${d.length ? ` · ${plural(d.length, 'attempt')}` : ''}</span></div>
-      ${d.length ? `<div class="score"><span class="lbl">${d.length > 1 ? 'Best' : 'Score'}</span><b class="mono">${best} / ${d.at(-1).max}</b></div><button class="btn" data-a="result" data-id="${x.id}">Result</button>` : ''}${act}</div>`;
+  HOME = { tests, atts: a.data?.attempts ?? [], name: me.name || '' };
+  drawHome();
+}
+// One test's state: avail (can start now), soon (not open yet), done (window closed or no attempts left)
+function tState(x) {
+  const d = HOME.atts.filter((z) => z.test_id === x.id), w = windowOf(x, Date.now()), left = (x.max_attempts ?? 1) - d.length;
+  const open = Date.now() >= w.start - 15 * 60000 || !!read('paper.' + x.id);
+  const kind = w.closed || left <= 0 ? 'done' : open ? 'avail' : 'soon';
+  return { x, d, w, left, kind };
+}
+function drawHome() {
+  const ORD = { avail: 0, soon: 1, done: 2 }, all = HOME.tests.map(tState).sort((p, q) => ORD[p.kind] - ORD[q.kind]), cnt = (k) => all.filter((o) => o.kind === k).length;
+  const next = all.filter((o) => o.kind === 'avail' && o.w.lastStart).sort((p, q) => p.w.lastStart - q.w.lastStart)[0];
+  const soon = all.filter((o) => o.kind === 'soon').sort((p, q) => p.w.start - q.w.start)[0];
+  const card = ({ x, d, w, left, kind }) => {
+    const best = d.length ? Math.max(...d.map((z) => z.score)) : null, last = d.at(-1), prev = d.length > 1 ? d.at(-2) : null;
+    const delta = prev ? last.score - prev.score : 0;
+    const meta = `${x.questions_count ?? 60} Q · ${x.duration_min} min · +4 / −${x.neg_marks ?? 1}`;
+    const state = kind === 'done' ? '<span class="tchip">Closed</span>' : kind === 'soon' ? '<span class="tchip up">Upcoming</span>' : d.length ? '<span class="tchip">Open</span>' : '<span class="tchip live"><i></i>Live</span>';
+    const att = kind === 'done' ? `${d.length} of ${x.max_attempts ?? 1} used` : left < (x.max_attempts ?? 1) ? `Retake · ${left} left` : plural(x.max_attempts ?? 1, 'attempt');
+    const scores = d.length ? `<div class="tscores"><div><span class="lbl">Best</span><b class="mono">${best}</b></div><div><span class="lbl">Last</span><b class="mono">${last.score}${delta ? ` <small class="${delta > 0 ? 'up' : 'dn'}">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</small>` : ''}</b></div></div>` : '';
+    const note = kind === 'done' ? '<span class="tnote">Window closed</span>' : kind === 'soon' ? `<div class="topens"><span class="tnote">Opens</span><b>${when(w.start)}</b>${w.lastStart ? `<span class="tnote">Start by ${when(w.lastStart)}</span>` : ''}</div>` : w.lastStart ? `<span class="tnote">Start by <b>${when(w.lastStart)}</b></span>` : '';
+    const acts = kind === 'done' ? `<button class="btn pill-btn" data-a="result" data-id="${x.id}">${d.length ? 'View result &amp; practise' : 'Closed'}</button>`
+      : kind === 'soon' ? '<button class="btn pill-btn" disabled>Not open yet</button>'
+      : `${d.length ? `<button class="btn pill-btn" data-a="result" data-id="${x.id}">Result</button>` : ''}<button class="btn dark pill-btn" data-a="open" data-id="${x.id}">${d.length ? 'Retake' : 'Start'}</button>`;
+    return `<article class="tcard ${kind}"><div class="trow1">${state}<span class="tnote">${att}</span></div><h3>${esc(x.title)}</h3><span class="tmeta">${meta}</span>${scores}${note}<div class="tacts">${acts}</div></article>`;
   };
-  const past = (x) => windowOf(x, Date.now()).closed || doneOf(x.id).length >= (x.max_attempts ?? 1);
-  const now = tests.filter((x) => !past(x)), old = tests.filter(past);
-  const sec = (title, list) => `<div class="tray"><div class="tray-head row"><span class="lbl">${title}</span><span class="count">${list.length}</span></div><div class="card list">${list.map(row).join('')}</div></div>`;
-  app.innerHTML = shell('home', 'Your tests', (now.length ? sec('Open now', now) : '<div class="card"><p class="muted">No test is open right now.</p></div>') + (old.length ? sec('Past tests', old) : ''));
+  const shown = all.filter((o) => TF === 'all' || (TF === 'avail' && o.kind === 'avail') || (TF === 'soon' && o.kind === 'soon') || (TF === 'done' && o.kind === 'done'));
+  const chip = (k, n, c) => `<button class="tf ${TF === k ? 'on' : ''}" data-a="tf" data-k="${k}">${n}${c == null ? '' : ` <span>${c}</span>`}</button>`;
+  const ban = next ? `<div class="tbanner"><div class="grow"><span>Next deadline</span><b>${esc(next.x.title)} — start by ${when(next.w.lastStart)}</b></div><div class="tleft"><span>Time left to start</span><b class="mono" id="tleft"></b></div><button class="btn pill-btn light" data-a="open" data-id="${next.x.id}">Start now</button></div>`
+    : soon ? `<div class="tbanner soon"><div class="grow"><span>Next test</span><b>${esc(soon.x.title)} opens ${when(soon.w.start)}</b></div></div>` : '';
+  app.innerHTML = shell('home', 'Your tests', `${ban}<div class="row thead"><h2>Your tests</h2><span class="grow"></span><div class="tfs" role="group" aria-label="Filter tests">${chip('all', 'All')}${chip('avail', 'Available', cnt('avail'))}${chip('soon', 'Upcoming', cnt('soon'))}${chip('done', 'Done', cnt('done'))}</div></div>
+    ${shown.length ? `<div class="tgrid">${shown.map(card).join('')}</div>` : '<div class="card"><p class="muted">No tests here.</p></div>'}`);
+  clearInterval(startTimer);
+  const el = $('#tleft');
+  if (el && next) { const tickL = () => { const e = $('#tleft'); if (!e) return clearInterval(startTimer); e.textContent = hms(next.w.lastStart - Date.now()); }; tickL(); startTimer = setInterval(tickL, 1000); }
 }
 
 app.addEventListener('click', async (e) => {
@@ -147,6 +170,7 @@ app.addEventListener('click', async (e) => {
   else if (a === 'rvsubj') { R.i = R.qs.findIndex((q) => q.subject === b.dataset.s); drawReview(); }
   else if (a === 'rvatt') go(`review/${R.test.id}/${b.dataset.att}`, true);
   else if (a === 'att') go(`result/${b.dataset.id}/${b.dataset.att}`, true);
+  else if (a === 'tf') { TF = b.dataset.k; drawHome(); }
   else if (a === 'home') go('tests');
   else if (a === 'progress') go('progress');
   else if (a === 'notebook') go('mistakes');
