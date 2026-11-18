@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
+import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -106,3 +106,10 @@ assert.equal(boxSubject('chemistry', O, ['physics', 'chemistry', 'mathematics'])
 { const qs = [...Array(20)].map((_, i) => ({ subject: i < 18 ? 'physics' : 'biology' })), c = omrColumns(qs, 15);
   assert.deepEqual(c.map((x) => [x.subject, x.items.length, x.items[0].n]), [['physics', 15, 1], ['physics', 3, 16], ['biology', 2, 19]]); }
 console.log('util ok');
+
+// chapters and difficulty bands
+assert.equal(Object.values(CHAPTERS).flat().length, 26);
+assert.ok(!Object.values(CHAPTERS).flat().includes('Heredity'));
+const cuts = bandCuts([5, 10, 12, 15, 18, 20, 25, 30, 60]);
+assert.deepEqual([bandOf(5, cuts), bandOf(18, cuts), bandOf(60, cuts), bandOf(null, cuts)], ['easy', 'medium', 'hard', '']);
+console.log('bands ok');
