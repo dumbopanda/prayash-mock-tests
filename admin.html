@@ -161,7 +161,7 @@ async function loadAlerts() {
   ts.data.filter((t) => !t.published).forEach((t) => todo.push([`d:${t.id}`, `<b>${esc(t.title)}</b> is still a draft`, 'tests']));
   const keyless = qs.data.filter((q) => !q.question_keys).length;
   if (keyless) todo.push([`k:${keyless}`, `${plural(keyless, 'question')} without an answer key`, 'questions']);
-  if (!r.students.length) todo.push(['s', 'No student account yet. Create one from the sign-in page.', 'dash']);
+  if (!r.students.length) todo.push(['s', 'No student account yet. Ask Claude to create one.', 'dash']);
   ALERTS = { todo: todo.filter(([k]) => !DISMISSED.has(k)), flags: r.all.filter(openFlags).reverse() };
   const n = ALERTS.todo.length + ALERTS.flags.length;
   $('#flagbtn').hidden = !n; $('#flagn').textContent = n;

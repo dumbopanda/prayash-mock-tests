@@ -876,3 +876,36 @@ html.admin{font-size:13.6px}
 }
 .flagbtn{border:0;cursor:pointer}
 @media(max-width:640px){#adm .avatar{width:34px;height:34px}#adm .flagbtn{height:32px}}
+
+/* ---------- Sign in ---------- */
+.signin{width:100%;max-width:24rem;background:#fff;border:1px solid var(--line);border-radius:1rem;overflow:hidden;box-shadow:0 12px 32px rgba(15,27,51,.08)}
+.si-head{display:flex;align-items:center;gap:var(--s3);padding:var(--s5);background:var(--blue);color:#fff}
+.si-head .logo{width:2.75rem;height:2.75rem;border-radius:0.75rem;background:#fff;color:var(--blue);font-size:1.25rem;font-weight:700}
+.si-head h1{font-size:1.25rem;font-weight:600;color:#fff;margin:0}
+.si-head span:not(.logo){font-size:var(--fs-sm);color:#D6E0FF}
+.signin>.card{border:0;border-radius:0;box-shadow:none;padding:var(--s5)}
+
+/* ---------- Student: blue top bar, start countdown, compact lists ---------- */
+.adm.stu .topbar{background:var(--blue);border-bottom:0;color:#fff;box-shadow:0 1px 3px rgba(15,27,51,.18)}
+.adm.stu .topbar .ttl{color:#fff;font-weight:600}
+.adm.stu .topbar .back{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);color:#fff}
+.adm.stu .topbar .chip{background:rgba(255,255,255,.18);color:#fff}
+.adm.stu .topbar .btn.sm:not(.back){background:#fff;border-color:#fff;color:var(--blue)}
+.adm.stu .topbar :is(.btn,.chip):focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media(hover:hover){.adm.stu .topbar .back:hover{background:rgba(255,255,255,.22)}}
+.dark-card .cd{display:flex;flex-direction:column;gap:2px}
+.dark-card .cd-l{font:500 var(--fs-sm) Inter,sans-serif;color:var(--on-dark)}
+.dark-card .cd-t{font:600 2.75rem/1.1 var(--mono);letter-spacing:-.01em}
+.keysd>summary{cursor:pointer;list-style:none;padding:var(--s2) 0.625rem;color:var(--blue)}
+.keysd>summary::-webkit-details-marker{display:none}
+.keysd>summary::before{content:'▸ '}.keysd[open]>summary::before{content:'▾ '}
+.keysd>.keys{padding:0 0.625rem 0.625rem}
+.rowlink{cursor:pointer}.rowlink .chev{color:var(--muted);font-size:1.25rem}
+@media(hover:hover){.rowlink:hover{background:var(--tray)}}
+.rowlink:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+summary.nbrow{align-items:center}.nbrow .it{min-width:0}
+.nowrap{white-space:nowrap}
+.li>.mono{white-space:pre}
+.adm.stu .main details.rv summary{flex-wrap:nowrap;align-items:center}
+.adm.stu .main details.rv summary>.grow{flex:1 1 0;min-width:0}
+.keysd{align-self:start}
