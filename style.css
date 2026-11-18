@@ -920,3 +920,12 @@ html.admin .topbar #goback{min-height:0;height:1.9rem;padding:0 .6rem;font-size:
   #adm .topbar #refresh{width:36px;height:36px}
   #adm .repbar .pseg button{padding:0 .5rem}
 }
+
+/* Admin v4b: clearer hierarchy; compact report controls */
+@media(max-width:640px){
+  #adm .main .tray>.lbl,#adm .main .tray-head,#adm .main .tray-head .ttl{font:700 1.2rem/1.25 Inter,sans-serif;letter-spacing:-.01em;color:var(--ink)}
+  #adm .main .tray{gap:.5rem}
+  #adm .main .card{font-size:.95rem;font-weight:400}
+  #adm .repbar .pseg button{min-height:30px;font-size:.85rem}
+  #adm .repbar .btn{min-height:32px;height:32px;padding:0 .75rem;font-size:.85rem}
+}

@@ -1,7 +1,7 @@
 // Network first, cache fallback: once a page has loaded online, it also opens in airplane mode.
-const V = 'v33';
+const V = 'v34';
 const SB = 'https://rfenuwnboyktdprlmgct.supabase.co';
-const FILES = ['index.html', 'student.html', 'style.css', 'shared.js', 'util.js', 'supabase.js', 'icon-192.png', 'fonts/inter.woff2', 'fonts/jetbrains-mono.woff2'];
+const FILES = ['index.html', 'student.html', 'style.css', 'shared.js', 'util.js', 'supabase.js', 'icon-192.png', 'fonts/inter.woff2', 'fonts/jakarta.woff2', 'fonts/jetbrains-mono.woff2'];
 
 // Cloudflare redirects /student.html to /student. Chrome refuses to show a saved redirect for a page load,
 // so store the final page instead.
