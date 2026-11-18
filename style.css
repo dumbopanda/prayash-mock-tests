@@ -929,3 +929,16 @@ html.admin .topbar #goback{min-height:0;height:1.9rem;padding:0 .6rem;font-size:
   #adm .repbar .pseg button{min-height:30px;font-size:.85rem}
   #adm .repbar .btn{min-height:32px;height:32px;padding:0 .75rem;font-size:.85rem}
 }
+
+/* Admin v4c: tighter vertical rhythm. Related things close (label+card, head+controls), sections clearly apart */
+@media(max-width:640px){
+  #adm .main .page{gap:1.1rem;padding-top:.75rem}
+  #adm .main .tray{gap:.35rem}
+  #adm .main .tray>.lbl,#adm .main .tray-head{font-size:1.1rem}
+  #adm .head{gap:.5rem;margin-bottom:-.4rem}
+  #adm .repbar{margin:0}
+  #adm .li,#adm .main tr{padding:.7rem 0}
+  #adm .card:not(.list):not(.tbl){padding:.75rem var(--s4)}
+  #adm .kpis{gap:var(--s4)}
+  .trend.fit{max-height:9rem}
+}
