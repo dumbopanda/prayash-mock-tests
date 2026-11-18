@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="admin">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -28,6 +28,7 @@
     </header>
     <main class="main"><div class="page" id="view"></div></main>
   </div>
+  <nav class="bnav noprint" id="bnav" aria-label="Main"></nav>
 </div>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
@@ -90,6 +91,15 @@ const NAV = [
 $('#nav').innerHTML = NAV.map(([g, items]) => `<div class="nav-g"><span class="lbl">${g}</span>${items.map(([v, n, i]) =>
   `<a class="nav-i" href="#${v}" data-v="${v}" title="${n}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg><span class="t">${n}</span></a>`).join('')}</div>`).join('');
 
+// Phone: bottom tab bar instead of the sidebar
+const BNAV = [['dash', 'Home', 'home'], ['tests', 'Tests', 'tests'], ['questions', 'Questions', 'list'], ['results', 'Results', 'check'], ['report', 'Report', 'doc']];
+$('#bnav').innerHTML = BNAV.map(([v, n, i]) => `<a href="#${v}" data-b="${v}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg><span>${n}</span></a>`).join('');
+// Phone: tables turn into two-line lists, so each cell carries its column name
+new MutationObserver(() => view.querySelectorAll('table:not([data-l])').forEach((t) => {
+  t.dataset.l = 1; const h = [...(t.rows[0]?.cells ?? [])].map((c) => (c.tagName === 'TH' ? c.textContent.trim() : ''));
+  [...t.rows].forEach((r) => [...r.cells].forEach((c, i) => c.tagName === 'TD' && h[i] && (c.dataset.l = h[i])));
+})).observe(view, { childList: true, subtree: true });
+
 // Routing by URL hash, so reload and the back button stay on the same page
 const views = { dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, preview: vPreview, results: vResults, sheet: vSheet, report: vReport };
 const SUB = { testform: ['tests', 'Test'], preview: ['tests', 'Preview'], sheet: ['results', 'Answer sheet'] }; // pages not in the sidebar: [parent, name]
@@ -104,6 +114,7 @@ function render() {
   let [g, n] = (() => { for (const [g, items] of NAV) { const i = items.find((x) => x[0] === nv); if (i) return [g, i[1]]; } })();
   if (SUB[v]) n = `<a class="link" href="#${nv}">${n}</a><span>/</span><b>${SUB[v][1]}</b>`; else n = `<b>${n}</b>`;
   $('#crumb').innerHTML = `<span>${g}</span><span>/</span>${n}`;
+  document.querySelectorAll('[data-b]').forEach((a) => { const on = a.dataset.b === (UP[v] ?? v); a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
   $('#goback').hidden = v === 'dash';
   $('#goback').onclick = () => go(UP[v] ?? 'dash'); // one level up, the same on every page
   drawer(false);
@@ -179,8 +190,8 @@ async function vQuestions() {
   const sel = new Set(), cuts = bandCuts(data.filter((r) => r.in_syllabus && !r.hold).map((r) => r.difficulty));
   view.innerHTML = `
     <div class="head"><div class="title"><h1>Question bank</h1><span class="muted">${data.length} in the bank · ${data.filter((r) => r.in_syllabus && !r.hold).length} usable · ${data.filter((r) => !r.in_syllabus).length} out of syllabus · ${data.filter((r) => r.chapter_review).length} need a chapter check</span></div><span class="grow"></span>
-      <a class="btn" href="#import">Import CSV</a><a class="btn dark" href="#form">Add question</a></div>
-    <div class="row filters">
+      <a class="btn" href="#import">Import CSV</a><a class="btn dark" href="#form">Add question</a><button class="btn phone" id="ftog" aria-expanded="false">Filters</button></div>
+    <div class="row filters" id="filters">
       <select id="fs" class="field auto" aria-label="Subject"><option value="">All subjects</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === F.subject ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
       <select id="fc" class="field auto" aria-label="Chapter"></select>
       <select id="fu" class="field auto" aria-label="Use"><option value="">Used or not</option><option value="unused" ${F.use === 'unused' ? 'selected' : ''}>Not in any test</option><option value="used" ${F.use === 'used' ? 'selected' : ''}>In a test</option></select>
@@ -203,6 +214,9 @@ async function vQuestions() {
   const table = () => {
     const l = shown();
     $('#cnt').textContent = `${plural(l.length, 'question')} shown${sel.size ? ` · ${sel.size} selected` : ''}`;
+    $('#cnt').parentNode.classList.toggle('has-sel', sel.size > 0);
+    const nf = ['subject', 'chapter', 'use', 'band', 'flag', 'text'].filter((k) => F[k]).length;
+    $('#ftog').textContent = nf ? `Filters · ${nf}` : 'Filters';
     ['#bulk', '#bch', '#bout', '#bin', '#bhold'].forEach((i) => ($(i).disabled = !sel.size));
     $('#qt').innerHTML = `<table><tr><th class="ck"></th><th>Question</th><th>Ans</th><th title="1-100, higher is harder">Diff</th><th>Tests</th><th></th></tr>
       ${l.slice(0, F.limit).map((r) => `<tr><td class="ck"><input type="checkbox" data-s="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Select"></td>
@@ -260,6 +274,7 @@ async function vQuestions() {
       if (!ok.length) return toast('Give these questions a current chapter first (Move to chapter), then bring them back.');
       bulk({ in_syllabus: true, chapter_review: false }, ok, `${plural(ok.length, 'question')} back in the syllabus${ok.length < sel.size ? ` · ${sel.size - ok.length} skipped, no current chapter` : ''}`);
     } else if (b.id === 'bhold' && confirm('Held questions have an unconfirmed key or figure. Release only after you have checked the answer. Release now?')) bulk({ hold: false }, [...sel], 'Hold released');
+    else if (b.id === 'ftog') { const o = $('#filters').classList.toggle('open'); b.setAttribute('aria-expanded', o); }
     else if (b.id === 'selall') { shown().slice(0, F.limit).forEach((r) => sel.add(r.id)); table(); }
   };
   chapters(); table();
@@ -348,7 +363,7 @@ function vForm(q, keep = {}) { // keep: subject and chapter carried over by "Sav
 // One paper = one CSV + its pictures. Check runs on every change; nothing is saved until Import.
 function vImport() {
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Import a paper</h1><span class="muted">Choose the CSV and its pictures. Nothing is saved until you press Import.</span></div><span class="grow"></span><button class="btn" id="tpl">Download template</button></div>
+    <div class="head"><div class="title"><h1>Import a paper</h1><span class="muted desc">Choose the CSV and its pictures. Nothing is saved until you press Import.</span></div><span class="grow"></span><button class="btn" id="tpl">Download template</button></div>
     <div class="tray"><span class="lbl">1 · Files</span><div class="card stack">
       <div class="row top-align">
         <div class="col"><label class="lbl" for="file">CSV file</label><input id="file" type="file" accept=".csv,text/csv"></div>
@@ -488,7 +503,7 @@ async function vTests() {
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Tests</h1><span class="muted">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
+    <div class="head"><div class="title"><h1>Tests</h1><span class="muted desc">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
     <div class="tray"><div class="row tray-head"><span class="ttl">${plural(data.length, 'test')}</span></div><div class="card list">
       ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at).length;
         return `<div class="li trow"><div class="col"><span class="row tight"><b class="tt">${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
@@ -573,7 +588,7 @@ async function vTestForm(t) {
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
   const held = qs.filter((x) => (x.hold || !x.in_syllabus) && !chosen.has(x.id)).length, cuts = bandCuts(qs.filter((x) => x.in_syllabus && !x.hold).map((x) => x.difficulty));
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>${t ? 'Edit' : 'New'} test</h1><span class="muted">Set the schedule and scoring, then pick 15 questions for each subject.</span></div></div>
+    <div class="head"><div class="title"><h1>${t ? 'Edit' : 'New'} test</h1><span class="muted desc">Set the schedule and scoring, then pick 15 questions for each subject.</span></div></div>
     ${attempts ? '<p class="note">She has taken this test, so its questions and negative marks are locked. Title, time, attempts and publishing can still change.</p>' : ''}
     <div class="te">
       <div class="te-main">
@@ -730,7 +745,7 @@ async function vResults(sid) {
   const { data: ts } = await sb.from('tests').select('*');
   const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
   const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
-  view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted">Every submitted attempt. Open one for subject scores and flags.</span></div><span class="grow"></span>${d.picker}</div>
+  view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted desc">Every submitted attempt. Open one for subject scores and flags.</span></div><span class="grow"></span>${d.picker}</div>
     <div class="tray"><div class="row tray-head"><span class="ttl">${plural(d.attempts.length, 'attempt')}</span></div><div class="card list">${[...d.attempts].reverse().map((a) => {
       const rows = d.answers.filter((r) => r.attempt_id === a.id), neg = +(testOf(a.test_id).neg_marks ?? 1);
       const subs = subjectStats(rows, [a]).filter((s) => s.total).map((s) => ({ ...s, score: rows.filter((r) => r.subject === s.subject && r.chosen === r.correct).reduce((n, r) => n + r.marks, 0) - s.wrong * neg, max: rows.filter((r) => r.subject === s.subject).reduce((n, r) => n + r.marks, 0) }));
