@@ -22,7 +22,8 @@
       <button class="icon-btn menu" id="menu" type="button" aria-label="Open menu"><svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
       <button class="btn sm back" id="goback" type="button" aria-label="Back">‹ Back</button>
       <nav class="crumb" id="crumb" aria-label="Breadcrumb"></nav><b class="ptitle" id="ptitle"></b><span class="grow"></span>
-      <a class="flagbtn" id="flagbtn" href="#flags" hidden aria-label="Cheat flags to review" title="Cheat flags to review"><span class="bang" aria-hidden="true">!</span><span id="flagn"></span></a>
+      <div class="acct"><button class="flagbtn" id="flagbtn" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="Alerts" title="Alerts"><span class="bang" aria-hidden="true">!</span><span id="flagn"></span></button>
+        <div class="alerts" id="alerts" hidden role="dialog" aria-label="Alerts"></div></div>
       <button class="icon-btn" id="refresh" type="button" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"/></svg></button>
       <div class="acct"><button class="avatar" id="acct" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account"></button>
         <div class="pop" id="pop" hidden><span class="muted" id="who"></span><button class="btn sm" id="out" type="button">Sign out</button></div></div>
@@ -33,7 +34,7 @@
 </div>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
-import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
+import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, pct, verdictOf, subjectStats, periodReport, trendSvg, barsSvg, mmss, plural } from './util.js';
 
 try { screen.orientation?.unlock?.(); } catch { /* not supported */ } // admin: any orientation; only her test pages lock to landscape
 const $ = (s) => document.querySelector(s);
@@ -76,7 +77,7 @@ $('#refresh').onclick = () => render();
 const pop = (o) => { $('#pop').hidden = !o; $('#acct').setAttribute('aria-expanded', o); };
 $('#acct').onclick = (e) => { e.stopPropagation(); pop($('#pop').hidden); };
 addEventListener('click', (e) => { if (!e.target.closest('.acct')) pop(false); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop(false); drawer(false); } });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop(false); drawer(false); alertsOpen(false); } });
 
 // Sidebar, grouped by what the admin is doing
 const ICON = {
@@ -87,7 +88,7 @@ const ICON = {
 const NAV = [
   ['Monitor', [['dash', 'Dashboard', 'home'], ['report', 'Weekly report', 'doc']]],
   ['Tests', [['tests', 'All tests', 'tests'], ['results', 'Results', 'check']]],
-  ['Content', [['questions', 'Question bank', 'list'], ['import', 'Import CSV', 'up']]],
+  ['Content', [['questions', 'Question bank', 'list']]],
 ];
 $('#nav').innerHTML = NAV.map(([g, items]) => `<div class="nav-g"><span class="lbl">${g}</span>${items.map(([v, n, i]) =>
   `<a class="nav-i" href="#${v}" data-v="${v}" title="${n}"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[i]}</svg><span class="t">${n}</span></a>`).join('')}</div>`).join('');
@@ -103,9 +104,9 @@ new MutationObserver(() => view.querySelectorAll('table:not([data-l])').forEach(
 })).observe(view, { childList: true, subtree: true });
 
 // Routing by URL hash, so reload and the back button stay on the same page
-const views = { flags: vFlags, dash: vDash, questions: vQuestions, form: vForm, import: vImport, tests: vTests, testform: vTestForm, preview: vPreview, results: vResults, sheet: vSheet, report: vReport };
+const views = { flags: vFlags, dash: vDash, questions: vQuestions, form: vForm, tests: vTests, testform: vTestForm, preview: vPreview, results: vResults, sheet: vSheet, report: vReport };
 const SUB = { form: ['questions', 'Edit question'], flags: ['results', 'Cheat flags'], testform: ['tests', 'Test'], preview: ['tests', 'Preview'], sheet: ['results', 'Answer sheet'] }; // pages not in the sidebar: [parent, name]
-const UP = { flags: 'dash', testform: 'tests', preview: 'tests', sheet: 'results', form: 'questions', import: 'questions' }; // Back goes here; other pages go to the dashboard
+const UP = { flags: 'dash', testform: 'tests', preview: 'tests', sheet: 'results', form: 'questions' }; // Back goes here; other pages go to the dashboard
 let ARG;
 function go(v, arg) { ARG = arg; if (location.hash.slice(1) === v) render(); else location.hash = v; }
 function render() {
@@ -144,26 +145,69 @@ async function allAttempts() {
   const prog = await Promise.all(st.data.map((s) => sb.rpc('get_progress', { p_student: s.id }).then((r) => (r.data?.attempts ?? []).map((a) => ({ ...a, student: s.name, sid: s.id })))));
   return { students: st.data, all: prog.flat().sort((x, y) => (x.submitted_at < y.submitted_at ? -1 : 1)) };
 }
-// The "!" in the top bar: attempts with cheat flags not yet ignored
-const showFlags = (all) => { const n = all.filter(openFlags).length; $('#flagbtn').hidden = !n; $('#flagn').textContent = n; };
-allAttempts().then((r) => r.all && showFlags(r.all));
+// The "!" in the top bar: things to fix plus cheat flags not yet dismissed. Fix-items are dismissed on this device; flags in the database.
+const DISMISSED = new Set((() => { try { return JSON.parse(localStorage.dismissed || '[]'); } catch { return []; } })());
+let ALERTS = { todo: [], flags: [] };
+async function loadAlerts() {
+  const [qs, ts, r] = await Promise.all([
+    fetchAll(() => sb.from('questions').select('id,question_keys(correct)')),
+    sb.from('tests').select('id,title,published,test_questions(questions(subject))'),
+    allAttempts(),
+  ]);
+  if (qs.error || ts.error || r.error) return;
+  const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
+  const todo = []; // [key, text, page]
+  ts.data.filter((t) => !r.all.some((a) => a.test_id === t.id) && counts(t).some((c) => c !== 15)).forEach((t) => todo.push([`n:${t.id}:${counts(t)}`, `<b>${esc(t.title)}</b> has ${counts(t).join(' / ')} questions (P / C / M / B), not 15 each`, 'tests']));
+  ts.data.filter((t) => !t.published).forEach((t) => todo.push([`d:${t.id}`, `<b>${esc(t.title)}</b> is still a draft`, 'tests']));
+  const keyless = qs.data.filter((q) => !q.question_keys).length;
+  if (keyless) todo.push([`k:${keyless}`, `${plural(keyless, 'question')} without an answer key`, 'questions']);
+  if (!r.students.length) todo.push(['s', 'No student account yet. Create one from the sign-in page.', 'dash']);
+  ALERTS = { todo: todo.filter(([k]) => !DISMISSED.has(k)), flags: r.all.filter(openFlags).reverse() };
+  const n = ALERTS.todo.length + ALERTS.flags.length;
+  $('#flagbtn').hidden = !n; $('#flagn').textContent = n;
+  if (!$('#alerts').hidden) drawAlerts();
+}
+function drawAlerts() {
+  const { todo, flags } = ALERTS;
+  $('#alerts').innerHTML = `<div class="al-h"><b>Alerts</b><span class="grow"></span>${todo.length + flags.length > 1 ? '<button class="btn sm ghost" data-al="all">Dismiss all</button>' : ''}</div>
+    ${todo.length ? `<div class="al-g"><span class="lbl">To fix</span>${todo.map(([k, t, p]) => `<div class="al-i"><a href="#${p}" class="grow">${t}</a><button class="x" data-al="t" data-k="${esc(k)}" aria-label="Dismiss">×</button></div>`).join('')}</div>` : ''}
+    ${flags.length ? `<div class="al-g"><span class="lbl">Cheat flags</span>${flags.map((a) => `<div class="al-i"><a href="#sheet" class="grow" data-sheet="${a.test_id}" data-sid="${a.sid}" data-att="${a.id}"><b>${esc(a.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</b><br><span class="flagtxt">${esc(flagLine(a))}</span><br><span class="muted">${when(a.submitted_at)}</span></a><button class="x" data-al="f" data-k="${a.id}" aria-label="Dismiss">×</button></div>`).join('')}</div>` : ''}
+    ${todo.length + flags.length ? '' : '<p class="muted al-empty">All clear.</p>'}
+    <a class="link al-f" href="#flags">Dismissed cheat flags</a>`;
+}
+const alertsOpen = (o) => { $('#alerts').hidden = !o; $('#flagbtn').setAttribute('aria-expanded', o); if (o) drawAlerts(); };
+$('#flagbtn').onclick = (e) => { e.stopPropagation(); alertsOpen($('#alerts').hidden); };
+$('#alerts').onclick = async (e) => {
+  e.stopPropagation();
+  const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); alertsOpen(false); return go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
+  if (e.target.closest('a')) return alertsOpen(false);
+  const b = e.target.closest('[data-al]'); if (!b) return;
+  const al = b.dataset.al, keys = al === 'all' ? ALERTS.todo.map(([k]) => k) : al === 't' ? [b.dataset.k] : [];
+  const ids = al === 'all' ? ALERTS.flags.map((a) => a.id) : al === 'f' ? [b.dataset.k] : [];
+  keys.forEach((k) => DISMISSED.add(k)); try { localStorage.dismissed = JSON.stringify([...DISMISSED]); } catch {}
+  if (ids.length) { const { error } = await rpc('ignore_flags', { p_ids: ids, p_ignore: true }); if (error) return toast(error.message); }
+  ALERTS = { todo: ALERTS.todo.filter(([k]) => !keys.includes(k)), flags: ALERTS.flags.filter((a) => !ids.includes(a.id)) };
+  const n = ALERTS.todo.length + ALERTS.flags.length; $('#flagbtn').hidden = !n; $('#flagn').textContent = n;
+  n ? drawAlerts() : alertsOpen(false);
+};
+addEventListener('click', (e) => { if (!e.target.closest('#alerts,#flagbtn')) alertsOpen(false); });
+loadAlerts();
 
 async function vFlags() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const r = await allAttempts();
   if (r.error) return (view.innerHTML = `<p class="err">${esc(r.error.message)}</p>`);
-  showFlags(r.all);
   const open = r.all.filter(openFlags).reverse(), done = r.all.filter((a) => (a.flags || []).length && a.flags_ignored).reverse();
   const row = (a, ignored) => `<div class="li frow"><div class="col grow-1"><b>${esc(a.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</b>
       <span class="muted">${when(a.submitted_at)}${r.students.length > 1 ? ` · ${esc(a.student)}` : ''}</span><span class="flagtxt">${esc(flagLine(a))}</span></div>
       <div class="row tight acts"><button class="btn sm" data-sheet="${a.test_id}" data-sid="${a.sid}" data-att="${a.id}">Answers</button>
-      <button class="btn sm ${ignored ? '' : 'dark'}" data-ig="${a.id}" data-v="${ignored ? 0 : 1}">${ignored ? 'Undo' : 'Ignore'}</button></div></div>`;
-  view.innerHTML = `<div class="head"><div class="title"><h1>Cheat flags</h1><span class="muted">Leaving fullscreen or switching apps during a test. Ignore the ones you have checked.</span></div><span class="grow"></span>
-      ${open.length > 1 ? '<button class="btn" id="igall">Ignore all</button>' : ''}</div>
+      <button class="btn sm ${ignored ? '' : 'dark'}" data-ig="${a.id}" data-v="${ignored ? 0 : 1}">${ignored ? 'Undo' : 'Dismiss'}</button></div></div>`;
+  view.innerHTML = `<div class="head"><div class="title"><h1>Cheat flags</h1><span class="muted">Leaving fullscreen or switching apps during a test. Dismissed ones stay listed here and can be undone.</span></div><span class="grow"></span>
+      ${open.length > 1 ? '<button class="btn" id="igall">Dismiss all</button>' : ''}</div>
     <section class="sec"><div class="sec-h"><h2>To review</h2><span class="count">${open.length}</span></div>
       <div class="card list">${open.map((a) => row(a, false)).join('') || '<p class="muted li">Nothing to review.</p>'}</div></section>
-    ${done.length ? `<section class="sec"><div class="sec-h"><h2>Ignored</h2><span class="count">${done.length}</span></div><div class="card list">${done.map((a) => row(a, true)).join('')}</div></section>` : ''}`;
-  const ignore = async (ids, v) => { const { error } = await rpc('ignore_flags', { p_ids: ids, p_ignore: v }); if (error) return toast(error.message); vFlags(); };
+    ${done.length ? `<section class="sec"><div class="sec-h"><h2>Dismissed</h2><span class="count">${done.length}</span></div><div class="card list">${done.map((a) => row(a, true)).join('')}</div></section>` : ''}`;
+  const ignore = async (ids, v) => { const { error } = await rpc('ignore_flags', { p_ids: ids, p_ignore: v }); if (error) return toast(error.message); vFlags(); loadAlerts(); };
   view.onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.id === 'igall') ignore(open.map((a) => a.id), true);
@@ -174,27 +218,15 @@ async function vFlags() {
 
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
-  const [qs, ts, r] = await Promise.all([
-    fetchAll(() => sb.from('questions').select('id,hold,question_keys(correct)')),
-    sb.from('tests').select('id,title,start_at,end_at,duration_min,published,test_questions(questions(subject))').order('start_at', { ascending: false }),
+  const [ts, r] = await Promise.all([
+    sb.from('tests').select('id,title,start_at,end_at,duration_min,published').order('start_at', { ascending: false }),
     allAttempts(),
   ]);
-  const err = qs.error || ts.error || r.error;
+  const err = ts.error || r.error;
   if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
-  const { all, students } = r;
-  showFlags(all);
+  const { all } = r;
   const now = Date.now(), inP = DP === 'all' ? all : all.filter((a) => Date.parse(a.submitted_at) >= now - (DP === '30' ? 30 : 7) * DAY);
-  const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   const attemptsOf = (t) => all.filter((a) => a.test_id === t.id).length;
-
-  const todo = []; // [text, page]
-  ts.data.filter((t) => !attemptsOf(t) && counts(t).some((c) => c !== 15)).forEach((t) => todo.push([`<b>${esc(t.title)}</b> has ${counts(t).join(' / ')} questions (P / C / M / B), not 15 each`, 'tests']));
-  const drafts = ts.data.filter((t) => !t.published).length;
-  if (drafts) todo.push([`${plural(drafts, 'test')} still in draft`, 'tests']);
-  const keyless = qs.data.filter((q) => !q.question_keys).length;
-  if (keyless) todo.push([`${plural(keyless, 'question')} without an answer key`, 'questions']);
-  if (!students.length) todo.push(['No student account yet. Create one from the sign-in page.', 'dash']);
-  const attn = todo.length ? `<div class="attn" role="region" aria-label="Needs attention"><div class="attn-h"><span class="bang" aria-hidden="true">!</span><b>${plural(todo.length, 'thing')} ${todo.length === 1 ? 'needs' : 'need'} attention</b></div>${todo.map(([t, p]) => `<a class="attn-i" href="#${p}"><span class="grow">${t}</span><span aria-hidden="true">›</span></a>`).join('')}</div>` : '';
 
   // hero: latest score, change since the one before, average for the period, then the trend
   const last = inP.at(-1), prev = inP.at(-2), avg = inP.length ? Math.round(inP.reduce((n, a) => n + pct(a), 0) / inP.length) : null;
@@ -221,7 +253,7 @@ async function vDash() {
     </div></section>`;
 
   view.innerHTML = `<div class="head dhead"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span><a class="btn dark" href="#testform">New test</a></div>
-    ${attn}${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
+    ${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
   view.onclick = (e) => {
     const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
@@ -237,7 +269,7 @@ async function vQuestions() {
   const sel = new Set(), cuts = bandCuts(data.filter((r) => r.in_syllabus && !r.hold).map((r) => r.difficulty));
   view.innerHTML = `
     <div class="head"><div class="title"><h1>Question bank</h1><span class="muted">${data.length} in the bank · ${data.filter((r) => r.in_syllabus && !r.hold).length} usable · ${data.filter((r) => !r.in_syllabus).length} out of syllabus · ${data.filter((r) => r.chapter_review).length} need a chapter check</span></div><span class="grow"></span>
-      <button class="btn phone" id="ftog" aria-expanded="false">Filters</button><a class="btn" href="#import">Import CSV</a></div>
+      <button class="btn phone" id="ftog" aria-expanded="false">Filters</button></div>
     <div class="row filters" id="filters">
       <select id="fs" class="field auto" aria-label="Subject"><option value="">All subjects</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === F.subject ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
       <select id="fc" class="field auto" aria-label="Chapter"></select>
@@ -406,158 +438,20 @@ function vForm(q, keep = {}) {
   $('#save').onclick = () => save(false);
 }
 
-/* ---------- CSV import ---------- */
-// One paper = one CSV + its pictures. Check runs on every change; nothing is saved until Import.
-function vImport() {
-  view.innerHTML = `
-    <div class="head"><div class="title"><h1>Import a paper</h1><span class="muted desc">Choose the CSV and its pictures. Nothing is saved until you press Import.</span></div><span class="grow"></span><button class="btn" id="tpl">Download template</button></div>
-    <div class="tray"><span class="lbl">1 · Files</span><div class="card stack">
-      <div class="row top-align">
-        <div class="col"><label class="lbl" for="file">CSV file</label><input id="file" type="file" accept=".csv,text/csv"></div>
-        <div class="col"><label class="lbl" for="imgs">Pictures · select all at once</label><input id="imgs" type="file" accept="image/*" multiple></div></div>
-      <details><summary class="muted">Or paste CSV text</summary><textarea id="txt" class="field mono" rows="6" aria-label="CSV text"></textarea></details>
-      <p class="muted">Columns: <span class="mono">${CSV_HEADER}</span>. Correct is A, B, C or D. Write x^2, 10^{-3}, H_2O, sqrt(10), A -> B. In Excel use Save As → "CSV UTF-8".</p></div></div>
-    <div id="chk"></div>
-    <div class="tray" id="opts" hidden><span class="lbl">3 · Save</span><div class="card stack">
-      <label class="opt"><input type="radio" name="mk" value="test" checked><span>Add to the bank <b>and create a test</b> from this paper</span></label>
-      <label class="opt"><input type="radio" name="mk" value="bank"> Add to the bank only</label>
-      <div class="row" id="tf">
-        <div class="col x2"><label class="lbl" for="title">Test title</label><input id="title" class="field"></div>
-        <div class="col"><label class="lbl" for="start">Opens</label><input id="start" class="field" type="datetime-local" value="${soon()}"></div>
-        <div class="col s"><label class="lbl" for="dur">Minutes</label><input id="dur" class="field mono" type="number" min="5" value="120"></div>
-        <div class="col m"><label class="lbl" for="neg">Negative marks</label><input id="neg" class="field mono" type="number" min="0" step="0.25" value="1"></div>
-        <label class="opt"><input type="checkbox" id="pub"> Publish now</label></div>
-      <div class="err" id="msg" role="alert"></div>
-      <div class="row"><button class="btn dark lg" id="go">Import</button><span class="muted" id="gonote"></span></div></div></div>`;
-  let R = null, bank = null;
-  $('#tpl').onclick = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿' + CSV_HEADER + '\nphysics,Electricity,"Three 6 ohm resistors are joined in parallel. The total resistance is",18 ohm,2 ohm,6 ohm,3 ohm,B,"1/R = 3/6, so R = 2 ohm",4,phy_p01_q01.png\nchemistry,"Acids, Bases and Salts","The pH of a neutral solution at 25 °C is",0,7,14,1,B,Neutral water has [H^+] = 10^{-7},4,\n'], { type: 'text/csv' }));
-    a.download = 'paper-template.csv'; a.click();
-  };
-  const check = async () => {
-    const txt = $('#txt').value;
-    if (!txt.trim()) { $('#chk').innerHTML = ''; $('#opts').hidden = true; return; }
-    if (!bank) {
-      $('#chk').innerHTML = '<p class="muted">Checking…</p>';
-      const b = await fetchAll(() => sb.from('questions').select('id,subject,chapter,body,test_questions(test_id)'));
-      if (b.error) return ($('#chk').innerHTML = `<p class="err">${esc(b.error.message)}</p>`);
-      bank = b.data;
-    }
-    const r = readQuestions(txt);
-    const files = new Map([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f]));
-    const known = new Map(bank.map((b) => [dupKey(b.subject, b.body), b]));
-    const seen = new Set();
-    r.ok.forEach((q) => {
-      const k = dupKey(q.subject, q.body), ex = known.get(k);
-      q.existing = ex?.id ?? null;
-      if (seen.has(k)) r.errors.push(`Row ${q.row}: same question as an earlier row`);
-      seen.add(k);
-      if (ex) r.warnings.push(`Row ${q.row}: already in the bank${ex.test_questions.length ? ` and used in ${plural(ex.test_questions.length, 'test')}` : ''}. The bank copy is used; it is not added twice.`);
-      if (q.image && !ex) {
-        const f = files.get(q.image.toLowerCase());
-        if (!f) r.errors.push(`Row ${q.row}: picture "${q.image}" not selected`);
-        else if (f.size > 1.5e6) r.warnings.push(`Row ${q.row}: picture "${q.image}" is ${(f.size / 1e6).toFixed(1)} MB and will load slowly`);
-      }
-    });
-    const used = new Set(r.ok.map((q) => q.image?.toLowerCase()).filter(Boolean)), extra = [...files.keys()].filter((n) => !used.has(n));
-    if (extra.length) r.warnings.push(`Pictures not named in the CSV: ${extra.join(', ')}`);
-    // every question needs a current chapter; dropped ones (Heredity) and unknown names are errors, never created on the fly
-    r.warnings = r.warnings.filter((w) => !/no chapter/.test(w));
-    r.ok.forEach((q) => {
-      if (CHAPTERS[q.subject]?.includes(q.chapter)) return;
-      r.errors.push(!q.chapter ? `Row ${q.row}: chapter is empty. Use one of the current ${cap(q.subject)} chapters.`
-        : /^heredity/i.test(q.chapter) ? `Row ${q.row}: "${q.chapter}" is not in the syllabus any more.`
-        : `Row ${q.row}: "${q.chapter}" is not a current ${cap(q.subject)} chapter (${CHAPTERS[q.subject]?.join(', ')}).`);
-    });
-    if (r.ok.length) r.warnings.push('Imported questions have no difficulty score yet. Set it in the question bank so the paper builder can use them.');
-    const n = SUBJECTS.map((s) => r.ok.filter((q) => q.subject === s).length);
-    if (n.some((c) => c !== 15)) r.warnings.push(`Subjects have ${n.join(' / ')} questions (P / C / M / B), not 15 each.`);
-    const rowNo = (x) => +(/^Row (\d+)/.exec(x)?.[1] ?? 1e9);
-    r.errors.sort((x, y) => rowNo(x) - rowNo(y)); r.warnings.sort((x, y) => rowNo(x) - rowNo(y));
-    R = r;
-    const fresh = r.ok.filter((q) => !q.existing).length, urls = [];
-    const thumb = (q) => { const f = q.image && files.get(q.image.toLowerCase()); if (!f) return q.image ? `<span class="mono muted">${esc(q.image)}</span>` : ''; const u = URL.createObjectURL(f); urls.push(u); return `<img class="thumb" src="${u}" alt="${esc(q.image)}">`; };
-    $('#chk').innerHTML = `<div class="tray"><span class="lbl">2 · Check</span><div class="card stack">
-      <div class="row tight">${r.errors.length ? `<span class="chip bad">✗ ${plural(r.errors.length, 'problem')} to fix</span>` : '<span class="chip ok">✓ Ready to import</span>'}
-        <span class="chip">${plural(r.ok.length, 'question')}</span>${SUBJECTS.map((s, i) => `<span class="chip ${n[i] === 15 ? '' : 'warn'}">${cap(s).slice(0, 4)} ${n[i]}</span>`).join('')}${fresh < r.ok.length ? `<span class="chip">${r.ok.length - fresh} already in bank</span>` : ''}</div>
-      ${r.errors.length ? `<div class="issues bad"><b>Fix these first</b> (missing pictures: add them above; anything else: fix the CSV and choose it again)<ul>${r.errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
-      ${r.warnings.length ? `<div class="issues"><b>Check these</b> (import still works)<ul>${r.warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
-      <div class="tbl pv"><table><tr><th>Row</th><th>Subject</th><th>Chapter</th><th>Question</th><th>Ans</th><th>Picture</th></tr>
-        ${r.ok.map((q) => `<tr><td class="mono">${q.row}</td><td>${cap(q.subject)}</td><td>${esc(q.chapter)}</td><td>${fmt(q.body.slice(0, 120))}${q.body.length > 120 ? '…' : ''}${q.existing ? ' <span class="chip">In bank</span>' : ''}</td><td class="mono">${'ABCD'[q.correct]}</td><td>${thumb(q)}</td></tr>`).join('')}</table></div></div></div>`;
-    $('#opts').hidden = !r.ok.length;
-    $('#go').disabled = !!r.errors.length || !r.ok.length;
-    $('#gonote').textContent = r.errors.length ? 'Fix the problems above first.' : '';
-  };
-  const mode = () => view.querySelector('input[name=mk]:checked').value;
-  view.onchange = async (e) => {
-    const t = e.target;
-    if (t.id === 'file' && t.files[0]) {
-      $('#txt').value = await t.files[0].text();
-      if (!$('#title').value) $('#title').value = t.files[0].name.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ');
-    }
-    if (t.name === 'mk') { $('#tf').hidden = mode() !== 'test'; $('#go').textContent = mode() === 'test' ? 'Import and create test' : 'Import'; return; }
-    if (['file', 'imgs'].includes(t.id)) check();
-  };
-  let deb = 0;
-  view.oninput = (e) => { if (e.target.id === 'txt') { clearTimeout(deb); deb = setTimeout(check, 400); } };
-  $('#go').textContent = 'Import and create test';
-  $('#go').onclick = async () => {
-    const msg = $('#msg'), test = mode() === 'test';
-    msg.textContent = '';
-    if (!R || R.errors.length) return;
-    if (test && (!$('#title').value.trim() || !$('#start').value)) return (msg.textContent = 'Give the test a title and an opening time.');
-    $('#go').disabled = true; $('#go').textContent = 'Importing…';
-    const fail = (m) => { msg.textContent = m; $('#go').disabled = false; $('#go').textContent = test ? 'Import and create test' : 'Import'; };
-    const fresh = R.ok.filter((q) => !q.existing);
-    const files = Object.fromEntries([...$('#imgs').files].map((f) => [f.name.toLowerCase(), f])), urls = {}, paths = [];
-    const undo = () => paths.length && sb.storage.from(IMG).remove(paths);
-    for (const name of new Set(fresh.map((q) => q.image?.toLowerCase()).filter(Boolean))) {
-      const path = `${crypto.randomUUID()}.${name.split('.').pop()}`;
-      const up = await sb.storage.from(IMG).upload(path, files[name]);
-      if (up.error) { await undo(); return fail(`Nothing imported: ${up.error.message}`); }
-      paths.push(path); urls[name] = sb.storage.from(IMG).getPublicUrl(path).data.publicUrl;
-    }
-    // ids made here so keys and test rows match exactly; created_at keeps the CSV order
-    const base = Date.now();
-    fresh.forEach((q) => (q.id = crypto.randomUUID()));
-    if (fresh.length) {
-      const ins = await sb.from('questions').insert(fresh.map((q, i) => ({ id: q.id, subject: q.subject, chapter: q.chapter, source_chapter: q.chapter, body: q.body, options: q.options, marks: q.marks,
-        image_url: q.image ? urls[q.image.toLowerCase()] : null, created_at: new Date(base + i).toISOString() })));
-      if (ins.error) { await undo(); return fail(`Nothing imported: ${ins.error.message}`); }
-      const keys = await sb.from('question_keys').insert(fresh.map((q) => ({ question_id: q.id, correct: q.correct, solution: q.solution })));
-      if (keys.error) {
-        await sb.from('questions').delete().in('id', fresh.map((q) => q.id)); // all or nothing
-        await undo(); return fail(`Nothing imported: ${keys.error.message}`);
-      }
-    }
-    bank = null;
-    if (!test) { toast(`Imported ${plural(fresh.length, 'question')}`); return go('questions'); }
-    const t = await sb.from('tests').insert({ title: $('#title').value.trim(), start_at: new Date($('#start').value).toISOString(), duration_min: Number($('#dur').value) || 120,
-      neg_marks: Number($('#neg').value), published: $('#pub').checked, cheat_flags: true, strategies: Object.keys(STRATEGIES) }).select('id').single();
-    if (t.error) { toast(`Questions imported, but the test was not created: ${t.error.message}`); return go('questions'); }
-    const order = [...R.ok].sort((a, b) => SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject)); // stable: CSV order inside each subject
-    const tq = await sb.from('test_questions').insert(order.map((q, i) => ({ test_id: t.data.id, question_id: q.existing ?? q.id, position: i + 1 })));
-    if (tq.error) { await sb.from('tests').delete().eq('id', t.data.id); toast(`Questions imported, but the test was not created: ${tq.error.message}`); return go('questions'); }
-    toast(`Imported ${plural(fresh.length, 'question')} and created the test`);
-    go('preview', t.data.id);
-  };
-}
-
 /* ---------- Tests ---------- */
 async function vTests() {
   const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, question_keys(correct))), attempts(id, submitted_at)').order('start_at', { ascending: false });
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
-    <div class="head"><div class="title"><h1>Tests</h1><span class="muted desc">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><a class="btn" href="#import">Import a paper</a><button class="btn dark" id="new">New test</button></div>
+    <div class="head"><div class="title"><h1>Tests</h1><span class="muted desc">Preview a test before publishing. She sees only published tests.</span></div><span class="grow"></span><button class="btn dark" id="new">New test</button></div>
     <div class="tray"><div class="row tray-head"><span class="ttl">${plural(data.length, 'test')}</span></div><div class="card list">
       ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at).length;
         return `<div class="li trow"><div class="col"><span class="row tight"><b class="tt">${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
         <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
         <span class="row tight"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm ${t.published ? 'ghost' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
-        ${t.attempts.length ? '' : `<button class="btn sm ghost danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted li">No tests yet. Import a paper to create one.</p>'}
+        ${t.attempts.length ? '' : `<button class="btn sm ghost danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted li">No tests yet. Ask Claude to build one, or press New test.</p>'}
     </div></div>`;
   view.onclick = async (e) => {
     const b = e.target.closest('[data-v],[data-e],[data-p],[data-d],#new'); if (!b) return;
