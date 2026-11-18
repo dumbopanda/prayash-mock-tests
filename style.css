@@ -657,4 +657,4 @@ details.rv summary .col{min-width:0;flex:1}
 .topens{background:var(--tray);border-radius:0.75rem;padding:var(--s3);display:flex;flex-direction:column;gap:2px}
 .tacts{margin-top:auto;padding-top:var(--s2);display:flex;gap:var(--s2)}.tacts .btn{flex:1}
 @media(max-width:700px){.tbanner{flex-wrap:wrap}}
-.qblock .src{margin:var(--s2) 0 0;font-size:var(--fs-xs);color:var(--muted);font-family:var(--mono)}
+.qblock .src{margin:0 0 var(--s2);font-size:var(--fs-xs);color:var(--muted);font-weight:600}

@@ -605,7 +605,7 @@ const line = (t) => t.replace(/\s*\n\s*/g, ' '); // a question on one line, for 
 const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
 const verdictChip = (v) => `<span class="chip ${v === 'C' ? 'ok' : v === 'W' ? 'bad' : ''}">${{ C: '✓ Correct', W: '✗ Wrong', S: '– Skipped' }[v]}</span>`;
 const optLine = (o, j, correct, chosen) => `<div class="optline ${j === correct ? 'right' : chosen === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === correct ? '<span>✓ correct</span>' : chosen === j ? '<span>✗ your answer</span>' : ''}</div>`;
-const qBlock = (q, chosen) => `<div class="qblock"><div class="qbody">${fmt(q.body)}</div>${img(q)}${q.options.map((o, j) => optLine(o, j, q.correct, chosen)).join('')}${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}${q.source_page ? `<p class="src">NCERT Class 10 · ${esc(q.source_chapter || q.chapter)} · page ${q.source_page}</p>` : ''}</div>`;
+const qBlock = (q, chosen) => `<div class="qblock">${q.source_chapter || q.chapter ? `<p class="src">${esc(q.source_chapter || q.chapter)}</p>` : ''}<div class="qbody">${fmt(q.body)}</div>${img(q)}${q.options.map((o, j) => optLine(o, j, q.correct, chosen)).join('')}${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div>`;
 
 let PROG = null, NB = [], P = null;
 
