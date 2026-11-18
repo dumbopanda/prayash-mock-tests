@@ -240,6 +240,26 @@ export function trendSvg(points, w = 560, fit = false) {
     ${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.value)}" r="5"/><text class="val" x="${x(i)}" y="${y(p.value) - 10}" text-anchor="middle">${p.value}%</text><text class="x" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(p.label)}</text>`).join('')}</svg>`;
 }
 
+// Stock-style area chart: smooth line, soft fill, light grid, last point called out
+let areaN = 0;
+export function areaSvg(points, w = 360, h = 170) {
+  if (points.length < 2) return `<p class="muted">The trend appears after 2 tests.${points.length ? ` So far: ${points[0].value}%.` : ''}</p>`;
+  const vs = points.map((p) => p.value), lo = Math.max(0, Math.floor((Math.min(...vs) - 8) / 10) * 10), hi = Math.min(100, Math.ceil((Math.max(...vs) + 4) / 10) * 10);
+  const L = 34, R = 16, T = 22, B = 24, x = (i) => L + (i * (w - L - R)) / (points.length - 1), y = (v) => T + ((hi - v) / (hi - lo || 1)) * (h - T - B);
+  const id = `ag${++areaN}`, P = points.map((p, i) => [x(i), y(p.value)]);
+  const line = P.map(([px, py], i) => (i ? `C${(P[i - 1][0] + px) / 2},${P[i - 1][1]} ${(P[i - 1][0] + px) / 2},${py} ${px},${py}` : `M${px},${py}`)).join(' ');
+  const ticks = [lo, (lo + hi) / 2, hi], step = Math.ceil(points.length / 5), [lx, ly] = P.at(-1);
+  return `<svg class="area" viewBox="0 0 ${w} ${h}" role="img" aria-label="Score trend: ${esc(points.map((p) => `${p.label} ${p.value}%`).join(', '))}">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E4ED8" stop-opacity=".28"/><stop offset="1" stop-color="#1E4ED8" stop-opacity="0"/></linearGradient></defs>
+    ${ticks.map((t) => `<line class="gr" x1="${L}" x2="${w - R}" y1="${y(t)}" y2="${y(t)}"/><text class="yl" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t}%</text>`).join('')}
+    <path d="${line} L${lx},${h - B} L${P[0][0]},${h - B} Z" fill="url(#${id})"/>
+    <path class="ln" d="${line}"/>
+    ${points.map((p, i) => (i % step === 0 || i === points.length - 1 ? `<text class="xl" x="${x(i)}" y="${h - 6}" text-anchor="${i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}">${esc(p.label)}</text>` : '')).join('')}
+    <line class="gr" x1="${lx}" x2="${lx}" y1="${ly}" y2="${h - B}" stroke-dasharray="3 3"/>
+    <circle class="dot" cx="${lx}" cy="${ly}" r="5"/>
+    <text class="tag" x="${lx}" y="${ly - 11}" text-anchor="end">${points.at(-1).value}%</text></svg>`;
+}
+
 // Seconds as m:ss
 export const mmss = (sec) => { const s = Math.max(0, Math.round(sec || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 1 switch, 2 switches
