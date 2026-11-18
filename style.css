@@ -909,3 +909,14 @@ summary.nbrow{align-items:center}.nbrow .it{min-width:0}
 .adm.stu .main details.rv summary{flex-wrap:nowrap;align-items:center}
 .adm.stu .main details.rv summary>.grow{flex:1 1 0;min-width:0}
 .keysd{align-self:start}
+
+/* Admin v4: top bar */
+html.admin .topbar #refresh{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.4);border-radius:50%}
+html.admin .topbar #goback{min-height:0;height:1.9rem;padding:0 .6rem;font-size:var(--fs-sm);width:auto}
+.repbar{margin:var(--s3) 0}
+@media(max-width:640px){
+  #adm .ptitle{font-size:1.35rem;font-weight:700}
+  #adm .topbar #goback{height:32px;min-height:32px;width:32px;padding:0;font-size:0}#adm .topbar #goback::before{font-size:1.3rem}
+  #adm .topbar #refresh{width:36px;height:36px}
+  #adm .repbar .pseg button{padding:0 .5rem}
+}
