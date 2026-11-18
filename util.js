@@ -228,12 +228,14 @@ export function periodReport(attempts, rows, sinceMs) {
 
 // Small line chart as an SVG string. points: [{ label, value }] with value 0-100. Styled by .trend in style.css.
 // w: viewBox width; use a wider one for full-width cards so labels stay the same size
-export function trendSvg(points, w = 560) {
-  const h = 150;
+// fit: scale the y axis to the scores shown instead of 0-100, so small changes are visible
+export function trendSvg(points, w = 560, fit = false) {
+  const h = fit ? 130 : 150;
   if (points.length < 2) return `<p class="muted">The trend appears after 2 tests.${points.length ? ` So far: ${points[0].value}%.` : ''}</p>`;
-  const L = 24, R = 24, T = 22, B = 28, x = (i) => L + (i * (w - L - R)) / (points.length - 1), y = (v) => T + ((100 - v) / 100) * (h - T - B);
-  return `<svg class="trend" viewBox="0 0 ${w} ${h}" role="img" aria-label="Score trend: ${esc(points.map((p) => `${p.label} ${p.value}%`).join(', '))}">
-    <line class="axis" x1="${L}" y1="${y(0)}" x2="${w - R}" y2="${y(0)}"/>
+  const vs = points.map((p) => p.value), lo = fit ? Math.max(0, Math.min(...vs) - 10) : 0, hi = fit ? Math.min(100, Math.max(...vs) + 5) : 100;
+  const L = 24, R = 24, T = 22, B = 28, x = (i) => L + (i * (w - L - R)) / (points.length - 1), y = (v) => T + ((hi - v) / (hi - lo || 1)) * (h - T - B);
+  return `<svg class="trend${fit ? ' fit' : ''}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Score trend: ${esc(points.map((p) => `${p.label} ${p.value}%`).join(', '))}">
+    <line class="axis" x1="${L}" y1="${y(lo)}" x2="${w - R}" y2="${y(lo)}"/>
     <polyline class="line" points="${points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ')}"/>
     ${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.value)}" r="5"/><text class="val" x="${x(i)}" y="${y(p.value) - 10}" text-anchor="middle">${p.value}%</text><text class="x" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(p.label)}</text>`).join('')}</svg>`;
 }
