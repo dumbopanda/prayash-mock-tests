@@ -136,7 +136,7 @@ const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); retu
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
 let DP = 'all'; // dashboard period: 7 | 30 | all
-const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off', abandoned: 'Started but never submitted' };
+const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off', abandoned: 'Started but never submitted', online: 'Turned the internet on during the test' };
 const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
 const openFlags = (a) => (a.flags || []).length > 0 && !a.flags_ignored;
 const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });

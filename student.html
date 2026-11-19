@@ -25,7 +25,7 @@ const app = $('#app');
 const hms = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':'); };
 const clockTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full */ } };
+const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }; // false: storage full
 
 const EXAM = 'exam.active';
 let S = read(EXAM); // active exam, kept on the tablet so a crash or restart resumes it
@@ -37,7 +37,8 @@ const setSize = (z) => { z = Math.min(1.5, Math.max(0.8, Math.round(z * 10) / 10
 let size = setSize(read('ui.size') ?? 1);
 addEventListener('resize', () => setSize(size));
 const sizeCtl = () => `<span class="row tight" role="group" aria-label="Text size"><button class="btn sm" data-a="size" data-d="-1" aria-label="Smaller text">A−</button><button class="btn sm" data-a="size" data-d="1" aria-label="Larger text">A+</button></span>`;
-const persist = () => write(EXAM, S);
+// Storage full: drop other saved papers (they download again online), then retry; never fail silently
+const persist = () => { if (write(EXAM, S)) return; Object.keys(localStorage).filter((k) => k.startsWith('paper.') && k !== 'paper.' + S.testId).forEach((k) => localStorage.removeItem(k)); if (!write(EXAM, S)) toast('Tablet storage is full. Your latest change may not be saved.'); };
 
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
@@ -200,8 +201,9 @@ async function openTest(id) {
   const r = await sb.rpc('get_paper', { p_test: id });
   if (r.data) {
     paper = { ...r.data, offset: Date.parse(r.data.now) - Date.now() }; // offset = server clock minus tablet clock
+    const miss = await Promise.all(paper.questions.filter((q) => q.image_url).map((q) => fetch(q.image_url).then((x) => !x.ok, () => true))); // lets the service worker cache images
+    paper.missing = miss.filter(Boolean).length; // a picture that did not download would be blank offline
     write('paper.' + id, paper);
-    await Promise.all(paper.questions.filter((q) => q.image_url).map((q) => fetch(q.image_url).catch(() => {}))); // lets the service worker cache images
   } else if (!paper) { toast(r.error?.message ?? 'Could not download the paper'); return go('tests', true); }
   startScreen(paper);
 }
@@ -217,7 +219,7 @@ function startScreen(paper) {
   const saved = (read('ui.order') ?? []).filter((s) => has.includes(s));
   const order = [...saved, ...has.filter((s) => !saved.includes(s))]; // her last chosen order
   const marks = [...new Set(paper.questions.map((q) => q.marks))].join('/');
-  const omr = omrMin(t), w = () => windowOf(t, Date.now() + paper.offset);
+  const omr = omrMin(t), w = () => windowOf(t, Date.now() + paper.offset), offlineOk = !!navigator.serviceWorker?.controller; // the app reopens in airplane mode
   const draw = () => {
     const neg = +t.neg_marks;
     app.innerHTML = shell('home', t.title, `<div class="st"><div class="stack">
@@ -235,7 +237,8 @@ function startScreen(paper) {
         <div class="cd" aria-live="polite"><span class="cd-l" id="cdl"></span><b class="cd-t" id="cd"></b></div>
         ${w().lastStart ? `<div class="sub">Start by ${clockTime(w().lastStart)}</div>` : ''}</div>
         <div class="tray"><span class="lbl">Before you start</span><div class="card stack tight sm-text">
-          <div>✓ Paper downloaded</div><div id="bat">Battery: checking…</div>
+          <div>${paper.missing ? `<span class="err">! ${plural(paper.missing, 'picture')} did not download. Connect to the internet, go back and open the test again.</span>` : '✓ Paper downloaded'}</div>
+          <div>${offlineOk ? '✓ App saved for offline' : '<span class="err">! Close and open the app once with internet</span>'}</div><div id="bat">Battery: checking…</div>
           <div id="air">${airText()}</div>
           <label class="opt"><input type="checkbox" id="pin" ${pinned ? 'checked' : ''}> Screen pinning is on</label></div></div>
         <button class="btn dark lg" data-a="go" id="go" disabled>Start test</button></div></div>`, { back: true, tools: true });
@@ -248,7 +251,8 @@ function startScreen(paper) {
     const [l, v] = spent ? ['Attempts', 'All used'] : x.closed ? ['Window', 'Closed'] : now < x.start ? ['Opens in', hms(x.start - now)] : x.lastStart ? ['Ready · time left to start', hms(Math.max(0, x.lastStart - now))] : ['Ready', 'Start any time'];
     if (cd) { cd.textContent = v; $('#cdl').textContent = l; }
     const ok = now >= x.start && !x.closed && paper.questions.length && !spent;
-    if (go) { go.disabled = !ok || !pinned; go.textContent = ok && !pinned ? 'Tick screen pinning first' : 'Start test'; }
+    const stop = !ok ? '' : paper.missing ? 'Pictures missing' : !offlineOk ? 'App not saved for offline' : navigator.onLine ? 'Turn on airplane mode first' : !pinned ? 'Tick screen pinning first' : ''; // the test is taken offline only
+    if (go) { go.disabled = !ok || !!stop; go.textContent = stop || 'Start test'; }
   };
   app.onchange = (e) => { if (e.target.id === 'pin') { pinned = e.target.checked; tickStart(); } };
   startScreen.handle = async (a, d) => {
@@ -262,6 +266,7 @@ function startScreen(paper) {
 
 async function begin(paper, strategy, order) {
   await fullscreen();
+  navigator.storage?.persist?.().catch(() => {}); // the browser will not clear the saved test to free space
   clearInterval(startTimer);
   const t = paper.test;
   let startedAt = Date.now() + paper.offset, attemptId = crypto.randomUUID(); // id made here so an offline start uploads as the same attempt
@@ -448,6 +453,8 @@ const actions = {
     if (await ask('', 'Submit test', html)) finish();
   },
   retry: () => upload(),
+  sendNow: () => { S.sendErr = ''; render(); }, // render sends again
+  omrOffline: () => { S.omrOffline = true; persist(); render(); }, // copies offline; the answers still upload when the internet comes back
   shoot: () => $('#cam').click(), // back camera on a phone or tablet; a file picker on a computer
 };
 // photo -> small JPEG kept on the tablet until the upload
@@ -460,7 +467,7 @@ app.addEventListener('change', async (e) => {
     S.photo = c.toDataURL('image/jpeg', 0.75); S.photoUp = false; persist(); render();
   } catch { toast('Could not read the photo. Try again.'); }
 });
-const OMR_OK = ['copied', 'submit', 'full', 'retry', 'shoot']; // the only taps that work once answers lock
+const OMR_OK = ['copied', 'submit', 'full', 'retry', 'shoot', 'sendNow', 'omrOffline']; // the only taps that work once answers lock
 
 const examTop = (mid) => `<header class="xm-top"><span class="brand hide-sm">${esc(S.title)}</span>${mid}<span class="grow"></span>${sizeCtl()}<span class="pill dark" id="clock" role="timer" aria-label="Time left"></span></header>`;
 const fullGate = () => (isFull() || noFs ? '' : '<div class="overlay"><div class="card stack"><b>The test is paused on screen</b><span class="muted">The clock keeps running.</span><button class="btn dark lg" data-a="full">Continue test</button></div></div>');
@@ -487,7 +494,7 @@ function render() {
       <div class="legend">${Object.entries(STATE).map(([k, nm]) => `<div class="li"><span class="sq mini ${k}" aria-hidden="true"></span><span class="grow">${nm}</span><span class="mono">${count(k)}</span></div>`).join('')}</div></div>
       <div class="side-act">${n ? `<button class="btn" data-a="next">${nextLbl}</button>` : ''}
         ${S.omrMs ? '<button class="btn quiet" data-a="toOmr">Go to OMR sheet</button>' : '<button class="btn danger" data-a="submit">Submit test</button>'}</div></aside></div>
-    ${fullGate()}`;
+    ${fullGate()}${navigator.onLine ? '<div class="overlay"><div class="card stack"><b>The internet is on</b><span class="muted">Turn airplane mode back on to continue. The clock keeps running.</span></div></div>' : ''}`;
   updateClock();
 }
 
@@ -502,13 +509,26 @@ function renderOmr() {
         const a = S.answers[q.id], done = S.copied.includes(q.id);
         return `<button class="omr-row ${a == null ? 'blank' : ''} ${done ? 'done' : ''} ${n % 5 === 0 ? 'five' : ''}" data-a="copied" data-id="${q.id}" aria-pressed="${done}" aria-label="Question ${n}: ${a == null ? 'blank' : 'ABCD'[a]}${done ? ', copied' : ''}"><span class="n">${n}</span>${[0, 1, 2, 3].map((i) => `<span class="bub ${a === i ? 'on' : ''}">${'ABCD'[i]}</span>`).join('')}<span class="ck" aria-hidden="true">${done ? '✓' : ''}</span></button>`;
       }).join('')}</div>`).join('')}</div></main>
-    <aside class="xm-side"><div class="phase"><span class="lbl">OMR sheet</span><span class="sm-text">The test submits itself when the time ends.</span></div>
+    <aside class="xm-side"><div class="phase"><span class="lbl">OMR sheet</span><span class="sm-text">The test submits itself when the time ends.</span>${S.sent ? '<span class="chip ok">✓ Answers uploaded</span>' : '<span class="chip bad">Answers not uploaded yet</span>'}</div>
       <div class="stack tight">${stat('Answered', got.length, 'to fill', '')}${stat('Blank', S.qs.length - got.length, 'leave empty', '')}${stat('Copied', got.filter((q) => S.copied.includes(q.id)).length, `of ${got.length}`, '')}</div>
       <div class="side-act">${S.photo ? `<img class="omr-shot" src="${S.photo}" alt="Your OMR sheet photo"><button class="btn" data-a="shoot">Retake photo</button><button class="btn danger" data-a="submit">Submit test</button>`
         : `${navigator.onLine ? '' : '<p class="err sm-text">Turn off airplane mode: the photo uploads when you submit.</p>'}<p class="sm-text">Fill the paper sheet, then photograph it.</p><button class="btn dark lg" data-a="shoot">Capture OMR sheet</button>`}
         <input type="file" id="cam" accept="image/*" capture="environment" hidden></div></aside></div>
-    ${fullGate()}`;
+    ${fullGate()}${S.sent || S.omrOffline ? '' : `<div class="overlay"><div class="card stack">${!navigator.onLine ? '<b>Answers locked. Turn off airplane mode</b><span class="muted">Connect to the internet now. Your answers upload first, then you fill the OMR sheet. The clock keeps running.</span>'
+      : S.sendErr ? `<b>Answers not uploaded</b><span class="err">${esc(S.sendErr)}</span><button class="btn dark lg" data-a="sendNow">Try again</button>` : '<b>Uploading your answers…</b><span class="muted">Please wait.</span>'}
+      ${navigator.onLine && !S.sendErr ? '' : '<button class="btn" data-a="omrOffline">No internet? Fill the sheet offline</button><span class="muted sm-text">Your answers stay on this tablet and upload later.</span>'}</div></div>`}`;
   updateClock();
+  if (!S.sent && !sending && !S.sendErr && navigator.onLine) sendEarly();
+}
+// OMR time: the answers are final, so they go to the server before she starts copying them
+let sending = false;
+async function sendEarly() {
+  sending = true; render();
+  const r = await saveAnswers();
+  sending = false;
+  if (!S || S.pending) return; // time ended meanwhile; upload() finishes the job
+  if (r.error) S.sendErr = navigator.onLine ? r.error.message : ''; else S.sent = true;
+  persist(); render();
 }
 
 /* ================= Finish + upload ================= */
@@ -520,28 +540,34 @@ async function finish() {
 }
 function renderPending() {
   app.innerHTML = `<div class="center"><div class="tray narrow"><span class="lbl">Test finished</span><div class="card stack">
-    <h1>${S.busy ? 'Uploading…' : 'Answers saved on this tablet'}</h1>
-    <p class="muted">${S.busy ? 'Please wait.' : 'Turn off airplane mode so they can be uploaded.'}</p>
+    <h1>${S.busy ? 'Uploading…' : S.sent ? 'Answers uploaded · OMR photo left' : 'Answers saved on this tablet'}</h1>
+    <p class="muted">${S.busy ? 'Please wait.' : 'Turn off airplane mode so they can be uploaded. Keep this app installed and do not clear its data until then.'}</p>
     <div class="err">${esc(S.err || '')}</div>
     <button class="btn dark" data-a="retry" ${S.busy ? 'disabled' : ''}>Upload now</button></div></div></div>`;
 }
-async function upload() {
-  if (S.busy) return;
-  S.busy = true; render();
-  // ponytail: the attempt row is created here too, so an offline start still works; its started_at is then the upload time
+// start + submit; both are safe to repeat: the server keeps the first submission
+async function saveAnswers() {
+  // ponytail: the attempt row is created here too, so an offline start still works
   // p_started_at: the tablet's own start time, so an offline start is judged by when it began, not when it uploads
   const st = await rpc('start_attempt', { p_test: S.testId, p_strategy: S.strategy, p_id: S.attemptId, p_started_at: new Date(S.startedAt).toISOString() });
-  if (st.error?.code) { S.busy = false; S.err = st.error.message; persist(); return render(); } // a server rule said no; the answers stay on the tablet
+  if (st.error?.code) return st; // a server rule said no; the answers stay on the tablet
   if (st.data?.id) S.attemptId = st.data.id;
+  return rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags, p_id: S.attemptId });
+}
+async function upload() {
+  if (S.busy) return;
+  if (!navigator.onLine) return render(); // the online event retries
+  S.busy = true; render();
+  const r = await saveAnswers(); // answers first: they matter most
+  if (r.error) { S.busy = false; S.err = r.error.message; persist(); return render(); }
+  S.sent = true; persist();
   if (S.photo && !S.photoUp) {
     const uid = (await sb.auth.getSession()).data.session?.user.id;
     const up = uid ? await sb.storage.from('omr-photos').upload(`${uid}/${S.attemptId}.jpg`, await (await fetch(S.photo)).blob(), { upsert: true, contentType: 'image/jpeg' }) : { error: { message: 'sign in again' } };
     if (up.error) { S.busy = false; S.err = 'Photo not uploaded: ' + up.error.message; persist(); return render(); }
     S.photoUp = true; persist();
   }
-  const r = await rpc('submit_attempt', { p_test: S.testId, p_answers: S.answers, p_marked: S.marked, p_times: S.times, p_flags: S.flags, p_id: S.attemptId });
   S.busy = false;
-  if (r.error) { S.err = r.error.message; persist(); return render(); }
   localStorage.removeItem(EXAM); localStorage.removeItem('paper.' + S.testId);
   const id = S.testId;
   S = null; unlockUI();
@@ -550,7 +576,8 @@ async function upload() {
   history.replaceState(null, '', `#result/${id}/${r.data.attempt.id}`);
   showResult(r.data, 0);
 }
-window.addEventListener('online', () => { if (S?.pending) upload(); });
+addEventListener('online', () => { if (!S) return; if (S.pending) return upload(); if (!inOmr()) { flag('online'); persist(); } render(); }); // before OMR the internet must stay off
+addEventListener('offline', () => { if (S && !S.pending) render(); });
 
 /* ================= Result ================= */
 const TARGET = 120; // seconds per question: 120 min for 60 questions
@@ -604,7 +631,7 @@ function reviewFilter(f) {
 }
 
 /* ================= Progress, mistake notebook, practice ================= */
-const airText = () => (navigator.onLine ? '○ Turn on airplane mode' : '✓ Airplane mode is on');
+const airText = () => (navigator.onLine ? '! Turn on airplane mode (Wi-Fi and mobile data off)' : '✓ Airplane mode is on');
 const syncNet = () => { document.querySelectorAll('.net').forEach((e) => (e.outerHTML = netPill())); const a = $('#air'); if (a) a.textContent = airText(); };
 addEventListener('online', syncNet); addEventListener('offline', syncNet);
 const blocks = (n) => `<span class="bar" role="img" aria-label="${Math.round(n)}%">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(n / 10) ? 'on' : ''}"></i>`).join('')}</span>`;
