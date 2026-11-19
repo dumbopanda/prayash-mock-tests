@@ -260,6 +260,29 @@ export function areaSvg(points, w = 360, h = 170) {
     <text class="tag" x="${lx}" y="${ly - 11}" text-anchor="end">${points.at(-1).value}%</text></svg>`;
 }
 
+// Paper difficulty label (avg question difficulty, 1-100)
+export const diffLabel = (d) => { const v = Math.round(d); return v <= 20 ? 'Easy' : v <= 40 ? 'Low-medium' : v <= 60 ? 'Medium' : 'Hard'; };
+
+// Two lines over tests: marks (left axis 0-240) and rating (right axis 0-100). points: {label, marks, rating}
+// Each test gets a full-height tap column (.hit) so the nearest test is always the one picked.
+export function dualSvg(points, w = 360, h = 200) {
+  const L = 34, R = 40, T = 14, B = 24, n = points.length, cw = n < 2 ? w - L - R : (w - L - R) / (n - 1);
+  const x = (i) => (n < 2 ? (L + w - R) / 2 : L + i * cw), yy = (f) => T + (1 - f) * (h - T - B);
+  const my = (p) => yy(Math.min(1, Math.max(0, p.marks / 240))), ry = (p) => yy(Math.min(1, Math.max(0, p.rating / 100)));
+  const path = (f) => points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${f(p)}`).join(' ');
+  const keep = new Set([n - 1]); let last = -1e9; // date labels at least 52px apart, the last one always shown
+  let prev = null; // and a date is not repeated for two tests on the same day
+  for (let i = 0; i < n - 1; i++) if (x(i) - last >= 52 && x(n - 1) - x(i) >= 52 && points[i].label !== prev && points[i].label !== points[n - 1].label) { keep.add(i); last = x(i); prev = points[i].label; }
+  const lab = (i) => `<text class="xl" x="${x(i)}" y="${h - 6}" text-anchor="${n < 2 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(points[i].label)}</text>`;
+  return `<svg class="area dual" viewBox="0 0 ${w} ${h}" role="img" aria-label="Marks and rating by test: ${esc(points.map((p) => `${p.title ?? p.label} marks ${p.marks}, rating ${Math.round(p.rating)}`).join('; '))}">
+    ${[0, .25, .5, .75, 1].map((f) => `<line class="gr" x1="${L}" x2="${w - R}" y1="${yy(f)}" y2="${yy(f)}"/><text class="yl" x="${L - 6}" y="${yy(f) + 4}" text-anchor="end">${240 * f}</text><text class="yl yr" x="${w - 6}" y="${yy(f) + 4}" text-anchor="end">${100 * f}</text>`).join('')}
+    <line class="guide" x1="0" x2="0" y1="${T}" y2="${h - B}" visibility="hidden"/>
+    ${n > 1 ? `<path class="ln" d="${path(my)}"/><path class="ln r" d="${path(ry)}"/>` : ''}
+    ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${my(p)}" r="4.5"/><circle class="dot r" cx="${x(i)}" cy="${ry(p)}" r="4.5"/>`).join('')}
+    ${[...keep].sort((a, b) => a - b).map(lab).join('')}
+    ${points.map((p, i) => `<rect class="hit" data-i="${i}" data-x="${x(i)}" x="${n < 2 ? L : Math.max(L - 8, x(i) - cw / 2)}" y="0" width="${n < 2 ? w - L - R : Math.min(cw, x(i) - Math.max(L - 8, x(i) - cw / 2) + cw / 2)}" height="${h}"/>`).join('')}</svg>`;
+}
+
 // Seconds as m:ss
 export const mmss = (sec) => { const s = Math.max(0, Math.round(sec || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 1 switch, 2 switches

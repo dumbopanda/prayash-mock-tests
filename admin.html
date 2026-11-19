@@ -35,7 +35,7 @@
 </div>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
-import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, areaSvg, barsSvg, mmss, plural } from './util.js';
+import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, areaSvg, dualSvg, diffLabel, barsSvg, mmss, plural } from './util.js';
 
 try { screen.orientation?.unlock?.(); } catch { /* not supported */ } // admin: any orientation; only her test pages lock to landscape
 const $ = (s) => document.querySelector(s);
@@ -142,6 +142,11 @@ const openFlags = (a) => (a.flags || []).length > 0 && !a.flags_ignored;
 const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
 // Every submitted attempt of every student, oldest first
+// attempt_metrics (difficulty, rating and the change since her previous attempt) is computed in the database; the page only shows it
+const metricsOf = async (q) => new Map(((await q(sb.from('attempt_metrics').select('*'))).data ?? []).map((m) => [m.attempt_id, m]));
+const r1 = (n) => +Number(n).toFixed(1);
+const chg = (v, dp = 1) => { const n = v == null ? 0 : +Number(v).toFixed(dp); return n ? `<span class="dlt ${n > 0 ? 'up' : 'down'}">${n > 0 ? '▲' : '▼'} ${Math.abs(n)}</span>` : ''; }; // dp 0 for rating, so the change matches the rounded ratings shown
+
 async function allAttempts() {
   const st = await sb.from('profiles').select('id,name').eq('role', 'student').eq('is_test', false); // test accounts stay out of every view
   if (st.error) return { error: st.error };
@@ -228,20 +233,21 @@ async function vDash() {
   ]);
   const err = ts.error || r.error;
   if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
-  const { all } = r;
+  const { all } = r, met = await metricsOf((q) => q.in('student_id', r.students.map((s) => s.id)));
   const now = Date.now(), inP = DP === 'all' ? all : all.filter((a) => Date.parse(a.submitted_at) >= now - (DP === '30' ? 30 : 7) * DAY);
   const attemptsOf = (t) => all.filter((a) => a.test_id === t.id).length;
 
   // hero: latest score, change since the one before, average for the period, then the trend
   const last = inP.at(-1), prev = inP.at(-2), avg = inP.length ? Math.round(inP.reduce((n, a) => n + pct(a), 0) / inP.length) : null;
   const d = last && prev ? pct(last) - pct(prev) : null;
-  const pts = inP.slice(-8).map((a) => ({ label: day(a.submitted_at), value: pct(a) }));
+  const mp = inP.filter((a) => met.has(a.id)).map((a) => { const m = met.get(a.id); return { label: day(a.submitted_at), title: a.title, marks: +m.score, rating: +m.rating, diff: +m.paper_difficulty }; });
   const w = Math.max(300, Math.min(900, view.clientWidth - 40));
   const per = `<div class="pseg" id="per" role="group" aria-label="Time period">${[['7', '7 days'], ['30', '30 days'], ['all', 'All']].map(([v, l]) => `<button class="${v === DP ? 'on' : ''}" data-p="${v}" aria-pressed="${v === DP}">${l}</button>`).join('')}</div>`;
   const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2><span class="grow"></span>${per}</div><div class="card hero2">
     ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest</span><span class="v">${pct(last)}%${d ? `<span class="dlt ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</span></div>
       <div class="kpi"><span class="k">Average</span><span class="v">${avg}%</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
-      ${areaSvg(pts, w)}` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
+      <div class="lg"><span><i></i>Marks</span><span><i class="r"></i>Rating</span></div>
+      <div class="trendw">${mp.length ? dualSvg(mp, w) : '<p class="muted">No rating yet.</p>'}<div class="tip" hidden></div></div>` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
 
   // live strip: a published test she can take right now, and where she is with it
   const left = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m} min left`);
@@ -267,7 +273,19 @@ async function vDash() {
   view.innerHTML = `<div class="head dhead"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span><a class="btn dark" href="#testform">New test</a></div>
     ${liveHtml}${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
   TICK = setInterval(() => { if (location.hash.slice(1) === 'dash' && liveHtml.includes('left')) vDash(); }, 60000);
+  // tooltip: above the higher of the two dots (below if no room), with a guide line through the test
+  const tip = $('.tip'), hide = () => { if (tip) { tip.hidden = true; $('.dual .guide')?.setAttribute('visibility', 'hidden'); } };
+  const show = (c) => { const i = +c.dataset.i, m = mp[i], tw = $('.trendw'), box = tw.getBoundingClientRect(), dots = tw.querySelectorAll('.dot');
+    const g = tw.querySelector('.guide'); g.setAttribute('x1', c.dataset.x); g.setAttribute('x2', c.dataset.x); g.setAttribute('visibility', 'visible');
+    tip.innerHTML = `<b>${esc(m.title)}</b><span>Marks ${r1(m.marks)} / 240</span><span>Rating ${Math.round(m.rating)}</span><span>Difficulty ${Math.round(m.diff)}</span>`; tip.hidden = false;
+    const d = [dots[2 * i], dots[2 * i + 1]].map((e) => e.getBoundingClientRect()), top = Math.min(...d.map((r) => r.top)) - box.top, bot = Math.max(...d.map((r) => r.bottom)) - box.top, cx = d[0].left + d[0].width / 2 - box.left;
+    const tw2 = tip.offsetWidth, th = tip.offsetHeight, side = cx + 14 + tw2 <= box.width ? cx + 14 : cx - 14 - tw2 >= 0 ? cx - 14 - tw2 : null;
+    if (side != null) { tip.style.left = side + 'px'; tip.style.top = Math.min(Math.max(top - 4, 0), box.height - th) + 'px'; return; } // beside the guide line: never covers her dots
+    tip.style.left = Math.min(Math.max(cx - tw2 / 2, 0), box.width - tw2) + 'px';
+    tip.style.top = (top - th - 8 >= 0 ? top - th - 8 : bot + 8) + 'px'; };
+  if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
   view.onclick = (e) => {
+    const h = e.target.closest('.hit'); if (h) return show(h); hide();
     const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
   };
@@ -833,6 +851,7 @@ async function vResults(sid) {
   const d = await studentData(sid);
   if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
   const { data: ts } = await sb.from('tests').select('*');
+  const met = await metricsOf((q) => q.eq('student_id', d.sid));
   const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
   view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted desc">Every submitted attempt. Open one for subject scores and flags.</span></div></div>
     <section class="sec"><div class="sec-h"><h2>${plural(d.attempts.length, 'attempt')}</h2></div><div class="sep">${[...d.attempts].reverse().map((a) => {
@@ -843,7 +862,7 @@ async function vResults(sid) {
       const dd = prev ? pct(a) - pct(prev) : 0;
       return `<details class="rv"><summary class="rs rrow"><span class="col"><span class="t1">${esc(a.title)}</span><span class="muted">${when(a.submitted_at)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''} · ${esc(stratName(a.strategy))}</span>
           ${openFlags(a) ? `<span class="flagtxt">! ${esc(flagLine(a))}</span>` : (a.flags || []).length ? '<span class="muted">Flags ignored</span>' : ''}</span>
-        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span></summary>
+        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating ${Math.round(m.rating)} ${chg(m.rating_change, 0)}</span>` : ''; })()}</summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
@@ -861,11 +880,17 @@ async function vSheet(arg) {
   view.onchange = (e) => { if (e.target.id === 'attsel') vSheet({ ...arg, attempt: e.target.value }); };
   const r = await rpc('get_result', { p_test: arg.test, p_student: arg.sid, p_attempt: arg.attempt });
   if (r.error) return (view.innerHTML = `<p class="err">${esc(r.error.message)}</p>`);
+  const m = (await sb.from('attempt_metrics').select('*').eq('attempt_id', r.data.attempt.id).maybeSingle()).data;
   const { attempt: a, test, questions: qs, attempts = [] } = r.data, times = a.times || {}, marked = a.marked || [];
   const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
   const slow = [...qs].sort((x, y) => (times[y.id] || 0) - (times[x.id] || 0)).slice(0, 5).filter((q) => times[q.id]);
   view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
-    <div id="omrph"></div>
+    <div class="sheetgrid solo"><div class="bento">
+      <div class="card bc"><span class="k">Marks</span><span class="v">${a.score}<small> / 240</small>${chg(m?.score_change)}</span></div>
+      <div class="card bc"><span class="k">Paper difficulty</span><span class="v">${m ? Math.round(m.paper_difficulty) : '–'}</span>${m ? `<span class="muted">${diffLabel(m.paper_difficulty)}</span>` : ''}</div>
+      <div class="card bc"><span class="k">Rating</span><span class="v">${m ? Math.round(m.rating) : '–'}${chg(m?.rating_change, 0)}</span></div>
+      <div class="card bc"><span class="k">Correct / Wrong / Skipped</span><span class="v cws"><span class="up">${a.correct}</span><span class="down">${a.wrong}</span><span>${a.skipped}</span></span></div>
+    </div><div id="omrph"></div></div>
     ${attempts.length > 1 ? `<label class="row tight attpick"><span class="muted">Attempt</span><select id="attsel" class="field auto">${attempts.map((x) => `<option value="${x.id}" ${x.id === a.id ? 'selected' : ''}>Attempt ${x.attempt_no} · ${x.score}</option>`).join('')}</select></label>` : ''}
     ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qs.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span><span class="chip ${lbl[verdictOf(a.answers[q.id], q.correct)][0]}">${lbl[verdictOf(a.answers[q.id], q.correct)][1]}</span><span class="mono">${mmss(times[q.id])}</span></div>`).join('')}</div></div>` : ''}
     ${SUBJECTS.filter((s) => qs.some((q) => q.subject === s)).map((s) => `<div class="tray"><span class="lbl">${cap(s)}</span><div class="card list">${qs.filter((q) => q.subject === s).map((q, i) => {
@@ -874,7 +899,7 @@ async function vSheet(arg) {
         <div class="qblock"><div class="qbody">${fmt(q.body)}</div>${q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure">` : ''}
         ${q.options.map((o, j) => `<div class="optline ${j === q.correct ? 'right' : ch === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === q.correct ? '<span>✓ correct</span>' : ch === j ? '<span>✗ her answer</span>' : ''}</div>`).join('')}
         ${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div></details>`; }).join('')}</div></div>`).join('')}`;
-  sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
+  sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (data?.signedUrl) $('.sheetgrid')?.classList.remove('solo'); if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
 }
 
 async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
