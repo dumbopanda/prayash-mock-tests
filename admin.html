@@ -143,7 +143,7 @@ const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', mont
 
 // Every submitted attempt of every student, oldest first
 async function allAttempts() {
-  const st = await sb.from('profiles').select('id,name').eq('role', 'student');
+  const st = await sb.from('profiles').select('id,name').eq('role', 'student').eq('is_test', false); // test accounts stay out of every view
   if (st.error) return { error: st.error };
   const prog = await Promise.all(st.data.map((s) => sb.rpc('get_progress', { p_student: s.id }).then((r) => (r.data?.attempts ?? []).map((a) => ({ ...a, student: s.name, sid: s.id })))));
   return { students: st.data, all: prog.flat().sort((x, y) => (x.submitted_at < y.submitted_at ? -1 : 1)) };
@@ -224,7 +224,7 @@ async function vDash() {
   const [ts, r, run] = await Promise.all([
     sb.from('tests').select('id,title,start_at,end_at,duration_min,published').order('start_at', { ascending: false }),
     allAttempts(),
-    sb.from('attempts').select('test_id,started_at,submitted_at').order('started_at', { ascending: false }),
+    sb.from('attempts').select('test_id,student_id,started_at,submitted_at').order('started_at', { ascending: false }),
   ]);
   const err = ts.error || r.error;
   if (err) return (view.innerHTML = `<p class="err">${esc(err.message)}</p>`);
@@ -246,7 +246,7 @@ async function vDash() {
   // live strip: a published test she can take right now, and where she is with it
   const left = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m} min left`);
   const liveHtml = ts.data.filter((t) => ['Live', 'Open'].includes(statusOf(t))).map((t) => {
-    const a = (run.data ?? []).find((x) => x.test_id === t.id), end = a && Date.parse(a.started_at) + t.duration_min * 60000;
+    const a = (run.data ?? []).find((x) => x.test_id === t.id && r.students.some((s) => s.id === x.student_id)), end = a && Date.parse(a.started_at) + t.duration_min * 60000;
     const st = !a ? 'Not started' : !a.submitted_at && end > now ? left(Math.max(1, Math.ceil((end - now) / 60000))) : 'Finished';
     return `<div class="live"><span class="ld" aria-hidden="true"></span><span class="lt"><b>Live</b> · ${esc(t.title)}</span><span class="grow"></span><span class="ls">${st}</span></div>`;
   }).join('');
@@ -455,13 +455,14 @@ function vForm(q, keep = {}) {
 
 /* ---------- Tests ---------- */
 async function vTests() {
-  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, question_keys(correct))), attempts(id, submitted_at)').order('start_at', { ascending: false });
+  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, question_keys(correct))), attempts(id, submitted_at, student_id)').order('start_at', { ascending: false });
+  const real = new Set(((await sb.from('profiles').select('id').eq('role', 'student').eq('is_test', false)).data ?? []).map((p) => p.id));
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
   view.innerHTML = `
     <div class="head"><div class="title"><h1>Tests</h1><span class="muted desc">Preview a test before publishing. She sees only published tests.</span></div></div>
     <section class="sec"><div class="sec-h"><h2>${plural(data.length, 'test')}</h2><span class="grow"></span><button class="btn dark sm" id="new">New test</button></div><div class="sep">
-      ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at).length;
+      ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at && real.has(a.student_id)).length;
         return `<div class="trow"><div class="col"><span class="row tight"><b class="tt">${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
         <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
         <span class="row tight"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
@@ -685,7 +686,7 @@ async function vTestForm(t) {
 /* ---------- Results and report ---------- */
 
 async function studentData(sid) {
-  const { data: studs } = await sb.from('profiles').select('id,name').eq('role', 'student');
+  const { data: studs } = await sb.from('profiles').select('id,name').eq('role', 'student').eq('is_test', false);
   if (!studs?.length) return { error: 'No student account yet.' };
   sid ??= studs[0].id;
   const r = await sb.rpc('get_progress', { p_student: sid });
