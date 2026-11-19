@@ -331,3 +331,36 @@ export function omrColumns(qs, rows = 15) {
   });
   return cols;
 }
+
+// Auto-pick one subject's questions for a target difficulty.
+// pool: [{ id, chapter, d, used, rank }] (used = in another test; rank orders reused ones, lower first). counts: { chapter: n }.
+// Only target ±8; aims for 40% lower third, 35% middle, 25% upper, then swaps within a chapter until the average is within ±1 (aims for ±0.5).
+export function pickSubject({ pool, counts, target: T, reuse = false, rnd = Math.random }) {
+  const W = 8, lo = T - W, inWin = (q) => q.d != null && q.d >= lo && q.d <= T + W, third = (q) => Math.min(2, Math.floor(((q.d - lo) * 3) / (2 * W)));
+  const shuf = (a) => a.map((q) => [rnd(), q]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+  const n = Object.values(counts).reduce((a, b) => a + b, 0), quota = [Math.round(n * 0.4), Math.round(n * 0.35)];
+  quota.push(n - quota[0] - quota[1]);
+  const fresh = shuf(pool.filter((q) => !q.used && inWin(q))), old = pool.filter((q) => q.used && inWin(q)).sort((a, b) => a.rank - b.rank);
+  const picked = [], short = [];
+  for (const [ch, need] of shuf(Object.entries(counts))) {
+    let left = fresh.filter((q) => q.chapter === ch);
+    for (let k = 0; k < need; k++) {
+      const q = [0, 1, 2].sort((a, b) => quota[b] - quota[a]).map((t) => left.find((x) => third(x) === t)).find(Boolean);
+      if (!q) {
+        const more = reuse ? old.filter((x) => x.chapter === ch).slice(0, need - k) : [];
+        picked.push(...more); if (need - k - more.length) short.push([ch, need - k - more.length]); break;
+      }
+      quota[third(q)]--; picked.push(q); left = left.filter((x) => x !== q);
+    }
+  }
+  const m = picked.length, sum = () => picked.reduce((a, q) => a + q.d, 0);
+  for (let it = 0; it < 300 && m; it++) { // swap toward the target until within ±0.5 if the bank allows (±1 is the hard limit); among swaps that land there, pick at random
+    const gap = sum() - T * m; if (Math.abs(gap) <= m / 2) break;
+    const opts = [];
+    picked.forEach((q, i) => fresh.forEach((c) => { if (c.chapter === q.chapter && !picked.includes(c)) { const g = Math.abs(gap - q.d + c.d); if (g < Math.abs(gap)) opts.push([g, i, c]); } }));
+    if (!opts.length) break;
+    const near = opts.filter((o) => o[0] <= m / 2), ok = near.length ? near : opts.filter((o) => o[0] <= m), [, i, c] = ok.length ? ok[Math.floor(rnd() * ok.length)] : opts.sort((a, b) => a[0] - b[0])[0];
+    picked[i] = c;
+  }
+  return { ids: picked.map((q) => q.id), reused: picked.filter((q) => q.used).map((q) => q.id), avg: m ? sum() / m : null, short };
+}

@@ -724,9 +724,6 @@ details.rv summary .col{min-width:0;flex:1}
   #adm .row.top-align>.col{flex-basis:100%}
   #adm p .mono{overflow-wrap:anywhere}
   #adm .tray:has(#pv){display:none}
-  #adm #view:has(#save) #save{position:fixed;left:var(--s3);right:var(--s3);bottom:calc(4.25rem + env(safe-area-inset-bottom));z-index:25;box-shadow:0 4px 16px rgba(15,23,42,.25)}
-  #adm #view:has(#save) #msg:not(:empty){position:fixed;left:var(--s3);right:var(--s3);bottom:calc(7.75rem + env(safe-area-inset-bottom));z-index:25;background:#fff;border:1px solid var(--bad-line);border-radius:0.5rem;padding:var(--s2) var(--s3)}
-  #adm #view:has(#save){padding-bottom:calc(9rem + env(safe-area-inset-bottom))}
   #adm .opt:has(.st){border:1px solid var(--line);border-radius:999px;padding:0.25rem 0.75rem;min-height:2.375rem;font-size:var(--fs-sm)}
   #adm .cmixes{gap:var(--s4)}#adm .cm .cn{width:3rem;min-height:2.25rem}
   #adm .ptool{padding:var(--s2) var(--s3)}#adm .ptool #qf{flex:1 1 100%;width:100%}
@@ -1081,3 +1078,28 @@ svg.area{width:100%;height:auto;display:block}
 .dual .ln{stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .dual .drop{stroke:var(--rule);stroke-width:1;stroke-dasharray:2 3}
 .dual .xl{font-size:10px}
+/* subject ratings: ⓘ explainer, answer-sheet By subject card, report Rating */
+.info{display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;margin:-.4rem -.25rem;padding:0;border:0;background:none;color:var(--muted);font:400 .85rem/1 Inter,sans-serif;cursor:help;vertical-align:middle;border-radius:50%}
+.info:hover,.info:focus-visible{color:var(--blue)}
+.itip{position:fixed;z-index:60;max-width:18rem;background:var(--ink);color:#fff;border-radius:.5rem;padding:.5rem .7rem;font:400 .8rem/1.45 Inter,sans-serif;box-shadow:0 4px 16px rgba(15,23,42,.25);pointer-events:none}
+.bsub{grid-column:1/-1}
+.bsub .sg{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:.45rem .75rem;align-items:center;font-size:.9375rem}
+.bsub .sg .h{font:500 .75rem Inter,sans-serif;color:var(--muted)}
+.bsub .sg .mono{font-variant-numeric:tabular-nums}.bsub .chip.mx{font-size:.65rem;padding:0 .35rem;vertical-align:1px}
+.subj{grid-template-columns:repeat(5,minmax(0,1fr))}.subj>.skp{grid-column:3/6}
+@media(max-width:640px){.subj{grid-template-columns:repeat(3,minmax(0,1fr))}.subj>b{grid-column:1/3}.subj>.skp{grid-column:3}}
+/* test editor: difficulty targets, live difficulty, Save in the summary */
+.tgtbar{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;padding:var(--s3) var(--s4)!important;font-size:var(--fs-sm);margin-bottom:var(--s3)}
+.tgt{display:flex;flex-direction:column;gap:.2rem;padding:.4rem 0 .6rem;border-bottom:1px solid var(--rule);margin-bottom:.4rem;font-size:var(--fs-sm)}
+.tgt .tg{width:5rem;min-height:2.25rem;text-align:right}
+.xs{font-size:.75rem}.warnt{color:#B45309;font-weight:500}
+.tnote{margin:.2rem 0 0;background:#FEF3C7;color:#92400E;border-radius:.375rem;padding:.35rem .5rem;font-size:.75rem;line-height:1.4}
+.chip.rz{background:#FEF3C7;color:#92400E}
+.sumrow .sd{min-width:5.5rem;text-align:right;font-size:.8125rem}.sumrow .sd .muted{font-size:.75rem}
+.sumrow.sumh{font-size:.6875rem;color:var(--muted);margin-bottom:-.35rem}.sumrow.sumh span:last-child{width:7.4rem;text-align:left}
+.sumrow.tot{flex-wrap:wrap}.sumrow.tot #pdiff{order:3;flex:1 1 100%;font-size:.8125rem}
+#save:disabled{opacity:.45;cursor:not-allowed}
+@media(min-width:1101px){.te{grid-template-columns:minmax(0,1fr) 22rem}}.sumrow .mono{white-space:nowrap}.sumrow .sd{min-width:0;font-size:.75rem}
+.tgt .tg{width:6rem}
+#save{display:flex;width:100%;align-items:center;justify-content:center}
+.sumrow .sd{min-width:5.75rem;text-align:right}.sumrow.tot #pdiff{order:0;flex:0 1 auto}
