@@ -260,6 +260,20 @@ export function areaSvg(points, w = 360, h = 170) {
     <text class="tag" x="${lx}" y="${ly - 11}" text-anchor="end">${points.at(-1).value}%</text></svg>`;
 }
 
+// Paper difficulty label (avg question difficulty, 1-100)
+export const diffLabel = (d) => { const v = Math.round(d); return v <= 20 ? 'Easy' : v <= 40 ? 'Low-medium' : v <= 60 ? 'Medium' : 'Hard'; };
+
+// Two lines over tests: marks (left axis 0-240) and rating (right axis 0-100). points: {label, marks, rating}
+export function dualSvg(points, w = 360, h = 200) {
+  const L = 34, R = 30, T = 14, B = 24, n = points.length, x = (i) => (n < 2 ? (L + w - R) / 2 : L + (i * (w - L - R)) / (n - 1)), yy = (f) => T + (1 - f) * (h - T - B);
+  const my = (p) => yy(Math.min(1, Math.max(0, p.marks / 240))), ry = (p) => yy(Math.min(1, Math.max(0, p.rating / 100)));
+  const path = (f) => points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${f(p)}`).join(' '), step = Math.ceil(n / 5);
+  return `<svg class="area dual" viewBox="0 0 ${w} ${h}" role="img" aria-label="Marks and rating by test">
+    ${[0, .25, .5, .75, 1].map((f) => `<line class="gr" x1="${L}" x2="${w - R}" y1="${yy(f)}" y2="${yy(f)}"/><text class="yl" x="${L - 6}" y="${yy(f) + 4}" text-anchor="end">${240 * f}</text><text class="yl" x="${w - R + 6}" y="${yy(f) + 4}">${100 * f}</text>`).join('')}
+    ${n > 1 ? `<path class="ln" d="${path(my)}"/><path class="ln r" d="${path(ry)}"/>` : ''}
+    ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${my(p)}" r="4.5"/><circle class="dot r" cx="${x(i)}" cy="${ry(p)}" r="4.5"/><circle class="hit" data-i="${i}" cx="${x(i)}" cy="${(my(p) + ry(p)) / 2}" r="${Math.max(16, Math.abs(my(p) - ry(p)) / 2 + 12)}"/>${i % step === 0 || i === n - 1 ? `<text class="xl" x="${x(i)}" y="${h - 6}" text-anchor="${i === 0 && n > 1 ? 'start' : i === n - 1 && n > 1 ? 'end' : 'middle'}">${esc(p.label)}</text>` : ''}`).join('')}</svg>`;
+}
+
 // Seconds as m:ss
 export const mmss = (sec) => { const s = Math.max(0, Math.round(sec || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 1 switch, 2 switches

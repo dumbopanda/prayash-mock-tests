@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg } from './util.js';
+import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg, diffLabel, dualSvg } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -113,3 +113,7 @@ assert.ok(!Object.values(CHAPTERS).flat().includes('Heredity'));
 const cuts = bandCuts([5, 10, 12, 15, 18, 20, 25, 30, 60]);
 assert.deepEqual([bandOf(5, cuts), bandOf(18, cuts), bandOf(60, cuts), bandOf(null, cuts)], ['easy', 'medium', 'hard', '']);
 console.log('bands ok');
+
+assert.deepEqual([20, 21, 40, 41, 60, 61].map(diffLabel), ['Easy', 'Low-medium', 'Low-medium', 'Medium', 'Medium', 'Hard']);
+assert.match(dualSvg([{ label: 'a', marks: 120, rating: 50 }, { label: 'b', marks: 240, rating: 0 }]), /<path class="ln r"/);
+console.log('metrics ok');
