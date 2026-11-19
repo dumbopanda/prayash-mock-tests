@@ -135,7 +135,7 @@ const DAY = 864e5;
 const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : t.end_at && n > Date.parse(t.end_at) ? 'Closed' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
-let DP = (() => { try { return localStorage.dashPeriod || '7'; } catch { return '7'; } })(); // dashboard period: 7 | 30 | all
+let DP = 'all'; // dashboard period: 7 | 30 | all
 const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off', abandoned: 'Started but never submitted' };
 const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
 const openFlags = (a) => (a.flags || []).length > 0 && !a.flags_ignored;
@@ -285,7 +285,7 @@ async function vDash() {
   if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
   view.onclick = (e) => {
     const h = e.target.closest('.hit'); if (h) return show(h); hide();
-    const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
+    const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
   };
 }
