@@ -1040,3 +1040,15 @@ svg.area{width:100%;height:auto;display:block}
 #adm .tray-head:not(.has-sel) :is(#bact,#bch,#bout,#bin,#bhold,#bulk){display:none}
 #adm .tray-head.has-sel #addq{display:none}
 @media(max-width:640px){#adm .tray-head:has(#addq):not(.has-sel) .grow{display:none}#adm .tray-head #addq{margin-left:auto}}
+/* admin selects: roomy custom arrow */
+#adm select.field{appearance:none;-webkit-appearance:none;padding-right:2.5rem;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%2364748B' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 1rem center/.75rem}
+#adm select.field:disabled{background-color:var(--tray)}
+/* qbank tablet/desktop: filters inset, table lines full width and even */
+@media(min-width:641px){
+  #adm .main .tray:has(#qt)>.filters{padding:.25rem 1.25rem 1rem}
+  #adm #qt.card.tbl{padding:0;border-width:1px 0 0;border-radius:0;box-shadow:none}
+  #adm #qt th{padding:.75rem .625rem}
+  #adm #qt td{padding:.75rem .625rem}
+  #adm #qt :is(th,td):first-child{padding-left:1.25rem}
+  #adm #qt :is(th,td):last-child{padding-right:1.25rem}
+}
