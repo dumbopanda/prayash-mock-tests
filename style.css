@@ -1056,7 +1056,7 @@ svg.area{width:100%;height:auto;display:block}
 .lg{display:flex;gap:var(--s4);font:500 .75rem Inter,sans-serif;color:var(--muted)}
 .lg span{display:inline-flex;align-items:center;gap:.4rem}.lg i{width:.75rem;height:.2rem;border-radius:2px;background:var(--blue)}.lg i.r,.dual .ln.r{background:#D97706}
 .dual .ln.r{fill:none;stroke:#D97706}.dual .dot{stroke-width:2}.dual .dot.r{stroke:#D97706}.dual .hit{fill:transparent;cursor:pointer}
-.dual .yl:nth-of-type(2n){fill:#B45309}
+
 .trendw{position:relative}
 .tip{position:absolute;z-index:3;pointer-events:none;background:var(--ink);color:#fff;border-radius:.5rem;padding:.4rem .6rem;display:flex;flex-direction:column;gap:1px;font:400 .75rem Inter,sans-serif;white-space:nowrap}
 .tip b{font-weight:600}
@@ -1071,3 +1071,9 @@ svg.area{width:100%;height:auto;display:block}
 .rs .mx{grid-column:1/-1;font-family:Inter,sans-serif}
 #adm .main details.rv summary.rs{flex-wrap:wrap}#adm .rs .mx{flex:1 1 100%}#adm .rs>.col:first-child{flex:1 1 0;min-width:0}
 .rs .mx .dlt{font-family:Inter,sans-serif;font-size:inherit}
+/* metrics review fixes */
+.dual .yr{fill:#B45309}.dual .yl:not(.yr){fill:var(--muted)}
+.dual .hit{fill:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.dual .guide{stroke:var(--ring);stroke-width:1;stroke-dasharray:3 3}
+#adm .rs .mx{margin-top:-.15rem}
+@media(min-width:641px) and (max-width:899px){.sheetgrid .bento{grid-template-columns:repeat(4,minmax(0,1fr))}}

@@ -145,7 +145,7 @@ const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', mont
 // attempt_metrics (difficulty, rating and the change since her previous attempt) is computed in the database; the page only shows it
 const metricsOf = async (q) => new Map(((await q(sb.from('attempt_metrics').select('*'))).data ?? []).map((m) => [m.attempt_id, m]));
 const r1 = (n) => +Number(n).toFixed(1);
-const chg = (v) => (v == null || +v === 0 ? '' : `<span class="dlt ${v > 0 ? 'up' : 'down'}">${v > 0 ? '▲' : '▼'} ${r1(Math.abs(v))}</span>`);
+const chg = (v, dp = 1) => { const n = v == null ? 0 : +Number(v).toFixed(dp); return n ? `<span class="dlt ${n > 0 ? 'up' : 'down'}">${n > 0 ? '▲' : '▼'} ${Math.abs(n)}</span>` : ''; }; // dp 0 for rating, so the change matches the rounded ratings shown
 
 async function allAttempts() {
   const st = await sb.from('profiles').select('id,name').eq('role', 'student').eq('is_test', false); // test accounts stay out of every view
@@ -273,12 +273,19 @@ async function vDash() {
   view.innerHTML = `<div class="head dhead"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span><a class="btn dark" href="#testform">New test</a></div>
     ${liveHtml}${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
   TICK = setInterval(() => { if (location.hash.slice(1) === 'dash' && liveHtml.includes('left')) vDash(); }, 60000);
-  const tip = $('.tip'), show = (c) => { const m = mp[c.dataset.i], box = $('.trendw').getBoundingClientRect(), cr = c.getBoundingClientRect();
+  // tooltip: above the higher of the two dots (below if no room), with a guide line through the test
+  const tip = $('.tip'), hide = () => { if (tip) { tip.hidden = true; $('.dual .guide')?.setAttribute('visibility', 'hidden'); } };
+  const show = (c) => { const i = +c.dataset.i, m = mp[i], tw = $('.trendw'), box = tw.getBoundingClientRect(), dots = tw.querySelectorAll('.dot');
+    const g = tw.querySelector('.guide'); g.setAttribute('x1', c.dataset.x); g.setAttribute('x2', c.dataset.x); g.setAttribute('visibility', 'visible');
     tip.innerHTML = `<b>${esc(m.title)}</b><span>Marks ${r1(m.marks)} / 240</span><span>Rating ${Math.round(m.rating)}</span><span>Difficulty ${Math.round(m.diff)}</span>`; tip.hidden = false;
-    tip.style.left = Math.min(Math.max(cr.left - box.left + cr.width / 2 - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth) + 'px'; tip.style.top = Math.max(cr.top - box.top - tip.offsetHeight - 4, 0) + 'px'; };
-  if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c) show(c); }; tw.onpointerleave = () => (tip.hidden = true); }
+    const d = [dots[2 * i], dots[2 * i + 1]].map((e) => e.getBoundingClientRect()), top = Math.min(...d.map((r) => r.top)) - box.top, bot = Math.max(...d.map((r) => r.bottom)) - box.top, cx = d[0].left + d[0].width / 2 - box.left;
+    const tw2 = tip.offsetWidth, th = tip.offsetHeight, side = cx + 14 + tw2 <= box.width ? cx + 14 : cx - 14 - tw2 >= 0 ? cx - 14 - tw2 : null;
+    if (side != null) { tip.style.left = side + 'px'; tip.style.top = Math.min(Math.max(top - 4, 0), box.height - th) + 'px'; return; } // beside the guide line: never covers her dots
+    tip.style.left = Math.min(Math.max(cx - tw2 / 2, 0), box.width - tw2) + 'px';
+    tip.style.top = (top - th - 8 >= 0 ? top - th - 8 : bot + 8) + 'px'; };
+  if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
   view.onclick = (e) => {
-    const h = e.target.closest('.hit'); if (h) return show(h);
+    const h = e.target.closest('.hit'); if (h) return show(h); hide();
     const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
   };
@@ -855,7 +862,7 @@ async function vResults(sid) {
       const dd = prev ? pct(a) - pct(prev) : 0;
       return `<details class="rv"><summary class="rs rrow"><span class="col"><span class="t1">${esc(a.title)}</span><span class="muted">${when(a.submitted_at)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''} · ${esc(stratName(a.strategy))}</span>
           ${openFlags(a) ? `<span class="flagtxt">! ${esc(flagLine(a))}</span>` : (a.flags || []).length ? '<span class="muted">Flags ignored</span>' : ''}</span>
-        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating ${Math.round(m.rating)} ${chg(m.rating_change)}</span>` : ''; })()}</summary>
+        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating ${Math.round(m.rating)} ${chg(m.rating_change, 0)}</span>` : ''; })()}</summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
@@ -878,10 +885,10 @@ async function vSheet(arg) {
   const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
   const slow = [...qs].sort((x, y) => (times[y.id] || 0) - (times[x.id] || 0)).slice(0, 5).filter((q) => times[q.id]);
   view.innerHTML = `<div class="head"><div class="title"><h1>${esc(test.title)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''}</h1><span class="muted">Score ${a.score} · ${a.correct} correct · ${a.wrong} wrong · ${a.skipped} skipped · ${esc(stratName(a.strategy))} · ${when(a.submitted_at)}</span></div></div>
-    <div class="sheetgrid"><div class="bento">
+    <div class="sheetgrid solo"><div class="bento">
       <div class="card bc"><span class="k">Marks</span><span class="v">${a.score}<small> / 240</small>${chg(m?.score_change)}</span></div>
       <div class="card bc"><span class="k">Paper difficulty</span><span class="v">${m ? Math.round(m.paper_difficulty) : '–'}</span>${m ? `<span class="muted">${diffLabel(m.paper_difficulty)}</span>` : ''}</div>
-      <div class="card bc"><span class="k">Rating</span><span class="v">${m ? Math.round(m.rating) : '–'}${chg(m?.rating_change)}</span></div>
+      <div class="card bc"><span class="k">Rating</span><span class="v">${m ? Math.round(m.rating) : '–'}${chg(m?.rating_change, 0)}</span></div>
       <div class="card bc"><span class="k">Correct / Wrong / Skipped</span><span class="v cws"><span class="up">${a.correct}</span><span class="down">${a.wrong}</span><span>${a.skipped}</span></span></div>
     </div><div id="omrph"></div></div>
     ${attempts.length > 1 ? `<label class="row tight attpick"><span class="muted">Attempt</span><select id="attsel" class="field auto">${attempts.map((x) => `<option value="${x.id}" ${x.id === a.id ? 'selected' : ''}>Attempt ${x.attempt_no} · ${x.score}</option>`).join('')}</select></label>` : ''}
@@ -892,7 +899,7 @@ async function vSheet(arg) {
         <div class="qblock"><div class="qbody">${fmt(q.body)}</div>${q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure">` : ''}
         ${q.options.map((o, j) => `<div class="optline ${j === q.correct ? 'right' : ch === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === q.correct ? '<span>✓ correct</span>' : ch === j ? '<span>✗ her answer</span>' : ''}</div>`).join('')}
         ${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div></details>`; }).join('')}</div></div>`).join('')}`;
-  sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (!data?.signedUrl) $('.sheetgrid')?.classList.add('solo'); if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
+  sb.storage.from('omr-photos').createSignedUrl(`${arg.sid}/${a.id}.jpg`, 600).then(({ data }) => { if (data?.signedUrl) $('.sheetgrid')?.classList.remove('solo'); if (data?.signedUrl && $('#omrph')) $('#omrph').innerHTML = `<div class="tray"><span class="lbl">Her OMR sheet photo</span><div class="card"><a href="${data.signedUrl}" target="_blank" rel="noopener"><img class="qimg" style="max-height:24rem" src="${data.signedUrl}" alt="OMR sheet photo"></a></div></div>`; });
 }
 
 async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
