@@ -1004,3 +1004,51 @@ svg.area{width:100%;height:auto;display:block}
 .live .ls{flex:none;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:.15rem .65rem;font-size:var(--fs-sm)}
 .sec-h .pseg{margin-left:auto}
 @media(max-width:640px){#adm .sec-h .pseg button{min-height:30px;font-size:.85rem;padding:0 .55rem}}
+
+/* Question bank bar */
+.qbar{margin-bottom:-.3rem}
+@media(min-width:641px){#ftog{display:none}}
+
+/* Question bank: denser rows, quiet count, less dead space (phone) */
+@media(max-width:640px){
+  #adm #qt tr{padding:.5rem 0 .5rem 2rem;gap:.15rem .6rem}
+  #adm #qt td.ck{top:.55rem}
+  #adm #qt td.qcell .qmeta{margin-top:.15rem;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+  #adm #qt td.qcell .qmeta>:first-child{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #adm #qt td.mono{font-size:.8rem}
+  #adm #qt td.actions .btn{min-height:1.75rem;height:1.75rem;padding:0 .6rem;font-size:.8rem}
+  #adm .card.tbl{padding-top:0;padding-bottom:0}
+  #adm .tray-head:not(.has-sel){margin:0}
+  #adm .tray-head:not(.has-sel) .ttl{font:400 .8rem Inter,sans-serif;color:var(--muted)}
+  #adm .main .tray:has(#qt){gap:.2rem}
+  #adm .qbar{margin-bottom:-.5rem}
+}
+
+/* Question bank top: bold count + Add on row 1, Select all + Filters share row 2 */
+.brk{flex-basis:100%;height:0}
+@media(min-width:641px){.brk{display:none}#addq{order:9}}
+@media(max-width:640px){
+  #adm .tray-head:not(.has-sel) .ttl{font:700 1.1rem/1.25 Inter,sans-serif;color:var(--ink);letter-spacing:-.01em}
+  #adm .tray-head:has(#addq){row-gap:.5rem;align-items:center}
+  #adm .tray-head #selall,#adm .tray-head #ftog{flex:1 1 0}
+  #adm .tray-head.has-sel :is(#addq,.brk){display:none}
+  #adm .main .tray:has(#qt){gap:.5rem}
+}
+#adm .tray-head .grow{flex:1 1 0}
+/* qbank: Add questions at far right; bulk actions only when selecting */
+#adm .tray-head:has(#addq):not(.has-sel) .grow{display:block;flex:1 1 0}
+#adm .tray-head:not(.has-sel) :is(#bact,#bch,#bout,#bin,#bhold,#bulk){display:none}
+#adm .tray-head.has-sel #addq{display:none}
+@media(max-width:640px){#adm .tray-head:has(#addq):not(.has-sel) .grow{display:none}#adm .tray-head #addq{margin-left:auto}}
+/* admin selects: roomy custom arrow */
+#adm select.field{appearance:none;-webkit-appearance:none;padding-right:2.5rem;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%2364748B' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 1rem center/.75rem}
+#adm select.field:disabled{background-color:var(--tray)}
+/* qbank tablet/desktop: filters inset, table lines full width and even */
+@media(min-width:641px){
+  #adm .main .tray:has(#qt)>.filters{padding:.25rem 1.25rem 1rem}
+  #adm #qt.card.tbl{padding:0;border-width:1px 0 0;border-radius:0;box-shadow:none}
+  #adm #qt th{padding:.75rem .625rem}
+  #adm #qt td{padding:.75rem .625rem}
+  #adm #qt :is(th,td):first-child{padding-left:1.25rem}
+  #adm #qt :is(th,td):last-child{padding-right:1.25rem}
+}
