@@ -1004,3 +1004,7 @@ svg.area{width:100%;height:auto;display:block}
 .live .ls{flex:none;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:.15rem .65rem;font-size:var(--fs-sm)}
 .sec-h .pseg{margin-left:auto}
 @media(max-width:640px){#adm .sec-h .pseg button{min-height:30px;font-size:.85rem;padding:0 .55rem}}
+
+/* Question bank bar */
+.qbar{margin-bottom:-.3rem}
+@media(min-width:641px){#ftog{display:none}}
