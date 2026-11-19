@@ -234,6 +234,23 @@ async function vFlags() {
   };
 }
 
+// Marks + Rating trend (legend, chart, tooltip): shared by the dashboard and the report. mp: points for dualSvg plus title, marks, rating, diff.
+const trendHtml = (mp, w) => `<div class="lg"><span><i></i>Marks</span><span><i class="r"></i>Rating</span></div>
+  <div class="trendw">${mp.length ? dualSvg(mp, w) : '<p class="muted">No rating yet.</p>'}<div class="tip" hidden></div></div>`;
+function wireTrend(mp) {
+  // tooltip: above the higher of the two dots (below if no room), with a guide line through the test
+  const tip = $('.tip'), hide = () => { if (tip) { tip.hidden = true; $('.dual .guide')?.setAttribute('visibility', 'hidden'); } };
+  const show = (c) => { const i = +c.dataset.i, m = mp[i], tw = $('.trendw'), box = tw.getBoundingClientRect(), dots = tw.querySelectorAll('.dot');
+    const g = tw.querySelector('.guide'); g.setAttribute('x1', c.dataset.x); g.setAttribute('x2', c.dataset.x); g.setAttribute('visibility', 'visible');
+    tip.innerHTML = `<b>${esc(m.title)}</b><span>Marks ${r1(m.marks)} / 240</span><span>Rating ${Math.round(m.rating)}</span><span>Difficulty ${Math.round(m.diff)}</span>`; tip.hidden = false;
+    const d = [dots[2 * i], dots[2 * i + 1]].map((e) => e.getBoundingClientRect()), top = Math.min(...d.map((r) => r.top)) - box.top, bot = Math.max(...d.map((r) => r.bottom)) - box.top, cx = d[0].left + d[0].width / 2 - box.left;
+    const tw2 = tip.offsetWidth, th = tip.offsetHeight, side = cx + 14 + tw2 <= box.width ? cx + 14 : cx - 14 - tw2 >= 0 ? cx - 14 - tw2 : null;
+    if (side != null) { tip.style.left = side + 'px'; tip.style.top = Math.min(Math.max(top - 4, 0), box.height - th) + 'px'; return; } // beside the guide line: never covers her dots
+    tip.style.left = Math.min(Math.max(cx - tw2 / 2, 0), box.width - tw2) + 'px';
+    tip.style.top = (top - th - 8 >= 0 ? top - th - 8 : bot + 8) + 'px'; };
+  if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
+  return { show, hide };
+}
 async function vDash() {
   view.innerHTML = '<p class="muted">Loading…</p>';
   const [ts, r, run] = await Promise.all([
@@ -255,8 +272,7 @@ async function vDash() {
   const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2><span class="grow"></span>${per}</div><div class="card hero2">
     ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest marks</span><span class="v">${lm ? r1(lm.score) : last.score}${chg(lm?.score_change)}</span></div>
       <div class="kpi"><span class="k">Latest rating ${INFO}</span><span class="v">${lm ? Math.round(lm.rating) : '–'}${chg(lm?.rating_change, 0)}</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
-      <div class="lg"><span><i></i>Marks</span><span><i class="r"></i>Rating</span></div>
-      <div class="trendw">${mp.length ? dualSvg(mp, w) : '<p class="muted">No rating yet.</p>'}<div class="tip" hidden></div></div>` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
+      ${trendHtml(mp, w)}` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
 
   // live strip: a published test she can take right now, and where she is with it
   const left = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m} min left`);
@@ -282,17 +298,7 @@ async function vDash() {
   view.innerHTML = `<div class="head dhead"><div class="title"><h1>Dashboard</h1></div><span class="grow"></span><a class="btn dark" href="#testform">New test</a></div>
     ${liveHtml}${hero}<div class="g2d">${recentHtml}${testsHtml}</div>`;
   TICK = setInterval(() => { if (location.hash.slice(1) === 'dash' && liveHtml.includes('left')) vDash(); }, 60000);
-  // tooltip: above the higher of the two dots (below if no room), with a guide line through the test
-  const tip = $('.tip'), hide = () => { if (tip) { tip.hidden = true; $('.dual .guide')?.setAttribute('visibility', 'hidden'); } };
-  const show = (c) => { const i = +c.dataset.i, m = mp[i], tw = $('.trendw'), box = tw.getBoundingClientRect(), dots = tw.querySelectorAll('.dot');
-    const g = tw.querySelector('.guide'); g.setAttribute('x1', c.dataset.x); g.setAttribute('x2', c.dataset.x); g.setAttribute('visibility', 'visible');
-    tip.innerHTML = `<b>${esc(m.title)}</b><span>Marks ${r1(m.marks)} / 240</span><span>Rating ${Math.round(m.rating)}</span><span>Difficulty ${Math.round(m.diff)}</span>`; tip.hidden = false;
-    const d = [dots[2 * i], dots[2 * i + 1]].map((e) => e.getBoundingClientRect()), top = Math.min(...d.map((r) => r.top)) - box.top, bot = Math.max(...d.map((r) => r.bottom)) - box.top, cx = d[0].left + d[0].width / 2 - box.left;
-    const tw2 = tip.offsetWidth, th = tip.offsetHeight, side = cx + 14 + tw2 <= box.width ? cx + 14 : cx - 14 - tw2 >= 0 ? cx - 14 - tw2 : null;
-    if (side != null) { tip.style.left = side + 'px'; tip.style.top = Math.min(Math.max(top - 4, 0), box.height - th) + 'px'; return; } // beside the guide line: never covers her dots
-    tip.style.left = Math.min(Math.max(cx - tw2 / 2, 0), box.width - tw2) + 'px';
-    tip.style.top = (top - th - 8 >= 0 ? top - th - 8 : bot + 8) + 'px'; };
-  if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
+  const { show, hide } = wireTrend(mp);
   view.onclick = (e) => {
     const h = e.target.closest('.hit'); if (h) return show(h); hide();
     const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; return vDash(); }
@@ -954,10 +960,11 @@ async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
   const avg3 = {}; sm.forEach((x) => (avg3[x.subject] = +x.rating_avg3)); // latest in the period wins
   const ranked = Object.keys(avg3).sort((x, y) => avg3[y] - avg3[x]);
   const day = (ms) => new Date(ms).toLocaleDateString([], { dateStyle: 'medium' });
+  const met = await metricsOf((q) => q.eq('student_id', d.sid)), mp = rep.attempts.filter((a) => met.has(a.id)).map((a) => { const m = met.get(a.id); return { label: new Date(a.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), title: a.title, marks: +m.score, rating: +m.rating, diff: +m.paper_difficulty }; });
   view.innerHTML = `<div class="head"><div class="title"><h1>${days === 7 ? 'Weekly' : days === 'all' ? 'All-time' : days + '-day'} report</h1><span class="muted">${day(from)} – ${day(Date.now())}</span></div></div>
     <div class="row noprint repbar"><div class="pseg" id="days" role="group" aria-label="Period">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], ['all', 'All']].map(([n, l]) => `<button class="${n === days ? 'on' : ''}" data-d="${n}" aria-pressed="${n === days}">${l}</button>`).join('')}</div><span class="grow"></span><button class="btn dark" id="print">Print / PDF</button></div>
     ${rep.tests ? `<div class="stats">${stat('Tests taken', rep.tests)}${stat('Average', rep.avg + '%')}${stat('Best', rep.best + '%')}${stat('Flags', rep.flags.fullscreen_exit + rep.flags.tab_hidden, `${plural(rep.flags.fullscreen_exit, 'exit')} · ${plural(rep.flags.tab_hidden, 'switch', 'switches')}`)}</div>
-      <div class="tray"><span class="lbl">Scores</span><div class="card">${areaSvg(rep.attempts.slice(-8).map((a) => ({ label: new Date(a.submitted_at).toLocaleDateString([], { day: 'numeric', month: 'short' }), value: pct(a) })), Math.max(300, Math.min(900, view.clientWidth - 40)))}</div></div>
+      <div class="tray"><span class="lbl">Score trend</span><div class="card hero2">${trendHtml(mp, Math.max(300, Math.min(900, view.clientWidth - 40)))}</div></div>
       <div class="tray"><span class="lbl">Summary</span><div class="card"><ul class="bul">${rep.strongest ? `<li>Strongest: <b>${cap(rep.strongest.subject)}</b> · ${rep.strongest.acc}% accuracy</li>` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `<li>Weakest: <b>${cap(rep.weakest.subject)}</b> · ${rep.weakest.acc}% accuracy</li>` : ''}${rep.strategies[0] ? `<li>Best strategy: <b>${esc(stratName(rep.strategies[0].strategy))}</b> · ${rep.strategies[0].avg}% average</li>` : ''}${ranked.length > 1 ? `<li>Highest rated: <b>${cap(ranked[0])}</b> · Lowest rated: <b>${cap(ranked.at(-1))}</b></li>` : ''}</ul></div></div>
       <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="sep">${rep.subjects.map((s) => `<div class="subj"><b>${cap(s.subject)}</b><span class="muted skp">${s.skipped} skipped</span>
           <div><span class="k">Accuracy</span><span class="mono">${s.acc == null ? '–' : s.acc + '%'}</span></div><div><span class="k">Per question</span><span class="mono">${mmss(s.perQ)}</span></div>
@@ -967,6 +974,7 @@ async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
       : '<p class="muted">No tests submitted in this period.</p>'}`;
   $('#days').onclick = (e) => { const b = e.target.closest('[data-d]'); if (b) vReport(d.sid, b.dataset.d === 'all' ? 'all' : Number(b.dataset.d)); };
   $('#print').onclick = () => window.print();
+  if (mp.length) { const { show, hide } = wireTrend(mp); view.onclick = (e) => { const h = e.target.closest('.hit'); if (h) show(h); else hide(); }; }
 }
 
 render();
