@@ -281,7 +281,11 @@ async function vQuestions() {
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const sel = new Set(), cuts = bandCuts(data.filter((r) => r.in_syllabus && !r.hold).map((r) => r.difficulty));
   view.innerHTML = `
-    <div class="row qbar"><button class="btn sm" id="selall">Select all shown</button><button class="btn sm phone" id="ftog" aria-expanded="false">Filters</button><span class="grow"></span><a class="btn dark sm" href="#import">Add questions</a></div>
+    <div class="tray"><div class="row tray-head"><span class="ttl" id="cnt"></span><span class="grow"></span><a class="btn dark sm" id="addq" href="#import">Add questions</a><span class="brk"></span><button class="btn sm" id="selall">Select all shown</button><button class="btn sm phone" id="ftog" aria-expanded="false">Filters</button>
+      <select id="bact" class="field auto" aria-label="Actions for selected" disabled><option value="">Actions…</option><option value="bout">Out of syllabus</option><option value="bin">Back in syllabus</option><option value="bhold">Release hold</option><option value="bulk">Delete selected</option></select>
+      <select id="bch" class="field auto" aria-label="Move selected to chapter" disabled><option value="">Move to…</option>${SUBJECTS.map((s) => `<optgroup label="${cap(s)}">${CHAPTERS[s].map((c) => `<option value="${s}|${esc(c)}">${esc(c)}</option>`).join('')}</optgroup>`).join('')}</select>
+      <button class="btn sm" id="bout" disabled>Out of syllabus</button><button class="btn sm" id="bin" disabled>Back in syllabus</button><button class="btn sm" id="bhold" disabled>Release hold</button>
+      <button class="btn sm danger" id="bulk" disabled>Delete selected</button></div>
     <div class="row filters" id="filters">
       <select id="fs" class="field auto" aria-label="Subject"><option value="">All subjects</option>${SUBJECTS.map((s) => `<option value="${s}" ${s === F.subject ? 'selected' : ''}>${cap(s)}</option>`).join('')}</select>
       <select id="fc" class="field auto" aria-label="Chapter"></select>
@@ -289,11 +293,6 @@ async function vQuestions() {
       <select id="fb" class="field auto" aria-label="Difficulty"><option value="">Any difficulty</option>${['easy', 'medium', 'hard'].map((b) => `<option value="${b}" ${b === F.band ? 'selected' : ''}>${cap(b)}</option>`).join('')}</select>
       <select id="fg" class="field auto" aria-label="Status"><option value="">Any status</option>${[['in', 'In syllabus, usable'], ['out', 'Out of syllabus'], ['review', 'Chapter needs review'], ['hold', 'On hold']].map(([v, l]) => `<option value="${v}" ${v === F.flag ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
-    <div class="tray"><div class="row tray-head"><span class="ttl" id="cnt"></span><span class="grow"></span>
-      <select id="bact" class="field auto" aria-label="Actions for selected" disabled><option value="">Actions…</option><option value="bout">Out of syllabus</option><option value="bin">Back in syllabus</option><option value="bhold">Release hold</option><option value="bulk">Delete selected</option></select>
-      <select id="bch" class="field auto" aria-label="Move selected to chapter" disabled><option value="">Move to…</option>${SUBJECTS.map((s) => `<optgroup label="${cap(s)}">${CHAPTERS[s].map((c) => `<option value="${s}|${esc(c)}">${esc(c)}</option>`).join('')}</optgroup>`).join('')}</select>
-      <button class="btn sm" id="bout" disabled>Out of syllabus</button><button class="btn sm" id="bin" disabled>Back in syllabus</button><button class="btn sm" id="bhold" disabled>Release hold</button>
-      <button class="btn sm danger" id="bulk" disabled>Delete selected</button></div>
       <div class="card tbl" id="qt"></div></div>`;
   const shown = () => data.filter((r) => (!F.subject || r.subject === F.subject) && (!F.chapter || r.chapter === F.chapter)
     && (!F.use || (F.use === 'used') === r.test_questions.length > 0)

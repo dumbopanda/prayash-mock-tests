@@ -1023,3 +1023,14 @@ svg.area{width:100%;height:auto;display:block}
   #adm .main .tray:has(#qt){gap:.2rem}
   #adm .qbar{margin-bottom:-.5rem}
 }
+
+/* Question bank top: bold count + Add on row 1, Select all + Filters share row 2 */
+.brk{flex-basis:100%;height:0}
+@media(min-width:641px){.brk{display:none}#addq{order:9}}
+@media(max-width:640px){
+  #adm .tray-head:not(.has-sel) .ttl{font:700 1.1rem/1.25 Inter,sans-serif;color:var(--ink);letter-spacing:-.01em}
+  #adm .tray-head:has(#addq){row-gap:.5rem;align-items:center}
+  #adm .tray-head #selall,#adm .tray-head #ftog{flex:1 1 0}
+  #adm .tray-head.has-sel :is(#addq,.brk){display:none}
+  #adm .main .tray:has(#qt){gap:.5rem}
+}
