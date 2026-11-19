@@ -35,7 +35,7 @@
 </div>
 <script type="module">
 import { sb, rpc, currentUser, logout } from './shared.js';
-import { SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, areaSvg, dualSvg, diffLabel, barsSvg, mmss, plural } from './util.js';
+import { pickSubject, SUBJECTS, CHAPTERS, bandCuts, bandOf, STRATEGIES, stratName, esc, fmt, cap, when, stat, readQuestions, CSV_HEADER, pct, verdictOf, subjectStats, periodReport, trendSvg, areaSvg, dualSvg, diffLabel, barsSvg, mmss, plural } from './util.js';
 
 try { screen.orientation?.unlock?.(); } catch { /* not supported */ } // admin: any orientation; only her test pages lock to landscape
 const $ = (s) => document.querySelector(s);
@@ -78,7 +78,7 @@ $('#refresh').onclick = () => render();
 const pop = (o) => { $('#pop').hidden = !o; $('#acct').setAttribute('aria-expanded', o); };
 $('#acct').onclick = (e) => { e.stopPropagation(); pop($('#pop').hidden); };
 addEventListener('click', (e) => { if (!e.target.closest('.acct')) pop(false); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop(false); drawer(false); alertsOpen(false); } });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { itip.hidden = true; pop(false); drawer(false); alertsOpen(false); } });
 
 // Sidebar, grouped by what the admin is doing
 const ICON = {
@@ -100,7 +100,7 @@ $('#bnav').innerHTML = BNAV.map(([v, n, i]) => `<a href="#${v}" data-b="${v}"><s
 // Phone: tables turn into two-line lists, so each cell carries its column name
 new MutationObserver(() => { $('#ptitle').textContent = view.querySelector('.head h1')?.textContent || $('#crumb b')?.textContent || ''; }).observe(view, { childList: true, subtree: true });
 new MutationObserver(() => view.querySelectorAll('table:not([data-l])').forEach((t) => {
-  t.dataset.l = 1; const h = [...(t.rows[0]?.cells ?? [])].map((c) => (c.tagName === 'TH' ? c.textContent.trim() : ''));
+  t.dataset.l = 1; const h = [...(t.rows[0]?.cells ?? [])].map((c) => (c.tagName === 'TH' ? c.textContent.replace('ⓘ', '').trim() : ''));
   [...t.rows].forEach((r) => [...r.cells].forEach((c, i) => c.tagName === 'TD' && h[i] && (c.dataset.l = h[i])));
 })).observe(view, { childList: true, subtree: true });
 
@@ -144,7 +144,17 @@ const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', mont
 // Every submitted attempt of every student, oldest first
 // attempt_metrics (difficulty, rating and the change since her previous attempt) is computed in the database; the page only shows it
 const metricsOf = async (q) => new Map(((await q(sb.from('attempt_metrics').select('*'))).data ?? []).map((m) => [m.attempt_id, m]));
+const subMetricsOf = async (q) => new Map(((await q(sb.from('attempt_subject_metrics').select('*'))).data ?? []).map((m) => [m.attempt_id + '|' + m.subject, m]));
 const r1 = (n) => +Number(n).toFixed(1);
+// ⓘ next to every Rating label: hover (mouse) or tap shows what rating means
+const INFO = '<button type="button" class="info" aria-label="What is rating?">ⓘ</button>';
+const itip = Object.assign(document.createElement('div'), { className: 'itip', hidden: true, textContent: "Rating = the question difficulty at which she gets about half right. It accounts for both the paper's difficulty and her marks: an easy paper with high marks and a hard paper with low marks can get the same rating." });
+itip.setAttribute('role', 'tooltip'); document.body.append(itip);
+const showInfo = (b) => { itip.hidden = false; const r = b.getBoundingClientRect(), w = itip.offsetWidth, h = itip.offsetHeight;
+  itip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px'; itip.style.top = (r.top - h - 8 > 0 ? r.top - h - 8 : r.bottom + 8) + 'px'; };
+document.addEventListener('click', (e) => { const b = e.target.closest('.info'); if (b) { e.preventDefault(); e.stopPropagation(); showInfo(b); } else itip.hidden = true; }, true); // capture: a tap inside a card header must not also open the card
+document.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const b = e.target.closest('.info'); if (b) showInfo(b); else itip.hidden = true; });
+addEventListener('scroll', () => (itip.hidden = true), true);
 const chg = (v, dp = 1) => { const n = v == null ? 0 : +Number(v).toFixed(dp); return n ? `<span class="dlt ${n > 0 ? 'up' : 'down'}">${n > 0 ? '▲' : '▼'} ${Math.abs(n)}</span>` : ''; }; // dp 0 for rating, so the change matches the rounded ratings shown
 
 async function allAttempts() {
@@ -244,7 +254,7 @@ async function vDash() {
   const per = `<div class="pseg" id="per" role="group" aria-label="Time period">${[['7', '7 days'], ['30', '30 days'], ['all', 'All']].map(([v, l]) => `<button class="${v === DP ? 'on' : ''}" data-p="${v}" aria-pressed="${v === DP}">${l}</button>`).join('')}</div>`;
   const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2><span class="grow"></span>${per}</div><div class="card hero2">
     ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest marks</span><span class="v">${lm ? r1(lm.score) : last.score}${chg(lm?.score_change)}</span></div>
-      <div class="kpi"><span class="k">Latest rating</span><span class="v">${lm ? Math.round(lm.rating) : '–'}${chg(lm?.rating_change, 0)}</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
+      <div class="kpi"><span class="k">Latest rating ${INFO}</span><span class="v">${lm ? Math.round(lm.rating) : '–'}${chg(lm?.rating_change, 0)}</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
       <div class="lg"><span><i></i>Marks</span><span><i class="r"></i>Rating</span></div>
       <div class="trendw">${mp.length ? dualSvg(mp, w) : '<p class="muted">No rating yet.</p>'}<div class="tip" hidden></div></div>` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
 
@@ -607,7 +617,7 @@ function vImport() {
 
 /* ---------- Tests ---------- */
 async function vTests() {
-  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, question_keys(correct))), attempts(id, submitted_at, student_id)').order('start_at', { ascending: false });
+  const { data, error } = await sb.from('tests').select('*, test_questions(question_id, questions(subject, marks, difficulty, question_keys(correct))), attempts(id, submitted_at, student_id)').order('start_at', { ascending: false });
   const real = new Set(((await sb.from('profiles').select('id').eq('role', 'student').eq('is_test', false)).data ?? []).map((p) => p.id));
   if (error) return (view.innerHTML = `<p class="err">${esc(error.message)}</p>`);
   const counts = (t) => SUBJECTS.map((s) => t.test_questions.filter((x) => x.questions.subject === s).length);
@@ -616,7 +626,7 @@ async function vTests() {
     <section class="sec"><div class="sec-h"><h2>${plural(data.length, 'test')}</h2><span class="grow"></span><button class="btn dark sm" id="new">New test</button></div><div class="sep">
       ${data.map((t) => { const n = counts(t), done = t.attempts.filter((a) => a.submitted_at && real.has(a.student_id)).length;
         return `<div class="trow"><div class="col"><span class="row tight"><b class="tt">${esc(t.title)}</b>${statusChip(t)}${n.every((c) => c === 15) ? '' : `<span class="chip warn">${n.join(' / ')} (P / C / M / B)</span>`}</span>
-        <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
+        <span class="muted">${when(t.start_at)}${t.end_at ? ` to ${when(t.end_at)}` : ''} · ${t.duration_min} min${t.omr_min ? ` incl. ${t.omr_min} OMR` : ''}${(() => { const v = t.test_questions.map((x) => x.questions.difficulty).filter((v) => v != null); return v.length ? ` · Difficulty ${r1(v.reduce((a, b) => a + b, 0) / v.length)}` : ''; })()} · +${[...new Set(t.test_questions.map((x) => x.questions.marks))].join('/') || 4} / −${t.neg_marks}${done ? ` · ${plural(done, 'attempt')}` : ''}${t.attempts.some((a) => !a.submitted_at) ? ' · one in progress' : ''}</span></div>
         <span class="row tight"><a class="btn sm" href="#preview" data-v="${t.id}">Preview</a><button class="btn sm" data-e="${t.id}">Edit</button>
         <button class="btn sm ${t.published ? 'ghost' : 'dark'}" data-p="${t.id}">${t.published ? 'Unpublish' : 'Publish'}</button>
         ${t.attempts.length ? '' : `<button class="btn sm ghost danger" data-d="${t.id}">Delete</button>`}</span></div>`; }).join('') || '<p class="muted">No tests yet. Ask Claude to build one, or press New test.</p>'}
@@ -686,15 +696,34 @@ async function vPreview(id) {
 
 async function vTestForm(t) {
   view.innerHTML = '<p class="muted">Loading…</p>';
-  const [{ data: qs }, { data: use }, { count: attempts }] = await Promise.all([
-    fetchAll(() => sb.from('questions').select('id,subject,chapter,body,hold,in_syllabus,difficulty').order('created_at')),
+  const [{ data: qs }, { data: use }, { count: attempts }, { data: tl }, { data: real }] = await Promise.all([
+    fetchAll(() => sb.from('questions').select('id,subject,chapter,body,hold,in_syllabus,difficulty,question_keys(correct)').order('created_at')),
     fetchAll(() => sb.from('test_questions').select('test_id,question_id')),
     t ? sb.from('attempts').select('*', { count: 'exact', head: true }).eq('test_id', t.id) : { count: 0 },
+    sb.from('tests').select('id,created_at,start_at').order('created_at', { ascending: false }),
+    sb.from('profiles').select('id').eq('role', 'student').eq('is_test', false),
+  ]);
+  const sids = (real ?? []).map((p) => p.id), [{ data: her }, { data: om }, { data: subm }] = await Promise.all([
+    sb.from('attempts').select('test_id,answers').in('student_id', sids).not('submitted_at', 'is', null),
+    sb.from('attempt_metrics').select('rating,submitted_at').in('student_id', sids).order('submitted_at', { ascending: false }).limit(1),
+    sb.from('attempt_subject_metrics').select('subject,rating_avg3,submitted_at').in('student_id', sids).order('submitted_at', { ascending: false }).limit(40),
   ]);
   const winH = t?.end_at ? Math.round(((Date.parse(t.end_at) - Date.parse(t.start_at)) / 36e5) * 100) / 100 : '';
   if (!qs || !use) return (view.innerHTML = '<p class="err">Could not load questions.</p>');
   const chosen = new Set(use.filter((x) => x.test_id === t?.id).map((x) => x.question_id));
   const elsewhere = new Map(); use.filter((x) => x.test_id !== t?.id).forEach((x) => elsewhere.set(x.question_id, (elsewhere.get(x.question_id) || 0) + 1));
+  // difficulty targets: last saved test's subject average + a small step; her latest ratings for context
+  const dOf = new Map(qs.map((x) => [x.id, x.difficulty])), avgOf = (ids) => { const v = ids.map((i) => dOf.get(i)).filter((v) => v != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const prevT = (tl ?? []).find((x) => x.id !== t?.id && use.some((u) => u.test_id === x.id)), prevIds = prevT ? use.filter((u) => u.test_id === prevT.id).map((u) => u.question_id) : [];
+  const STEP = { physics: 0.3, chemistry: 0.15, biology: 0.15, mathematics: 1 }, FIRST = { physics: 18, chemistry: 17, biology: 17, mathematics: 20 };
+  const subjOf = new Map(qs.map((x) => [x.id, x.subject])), last = Object.fromEntries(SUBJECTS.map((s) => [s, avgOf(prevIds.filter((i) => subjOf.get(i) === s))]));
+  const tgt0 = Object.fromEntries(SUBJECTS.map((s) => [s, last[s] == null ? FIRST[s] : +(last[s] + STEP[s]).toFixed(2)]));
+  const herR = {}; (subm ?? []).forEach((x) => (herR[x.subject] ??= x.rating_avg3));
+  const anyUse = new Set(use.map((u) => u.question_id)), freshN = (s) => qs.filter((x) => x.subject === s && x.in_syllabus && !x.hold && !anyUse.has(x.id)).length;
+  // reuse order: ones she got wrong or skipped first, then the ones used longest ago
+  const tStart = new Map((tl ?? []).map((x) => [x.id, Date.parse(x.start_at)])), lastUsed = new Map(), missed = new Set(), key = new Map(qs.map((x) => [x.id, x.question_keys?.correct]));
+  use.forEach((u) => lastUsed.set(u.question_id, Math.max(lastUsed.get(u.question_id) ?? 0, tStart.get(u.test_id) ?? 0)));
+  (her ?? []).forEach((a) => use.filter((u) => u.test_id === a.test_id).forEach((u) => { if (a.answers?.[u.question_id] !== key.get(u.question_id)) missed.add(u.question_id); }));
   const held = qs.filter((x) => (x.hold || !x.in_syllabus) && !chosen.has(x.id)).length, cuts = bandCuts(qs.filter((x) => x.in_syllabus && !x.hold).map((x) => x.difficulty));
   view.innerHTML = `
     <div class="head"><div class="title"><h1>${t ? 'Edit' : 'New'} test</h1><span class="muted desc">Set the schedule and scoring, then pick 15 questions for each subject.</span></div></div>
@@ -719,37 +748,48 @@ async function vTestForm(t) {
         <div class="tray"><div class="row tray-head"><span class="ttl">Strategies she can pick</span></div><div class="card">
           <div class="row">${Object.entries(STRATEGIES).map(([k, v]) => `<label class="opt"><input type="checkbox" class="st" value="${k}" ${(t?.strategies ?? Object.keys(STRATEGIES)).includes(k) ? 'checked' : ''}> ${v[0]}</label>`).join('')}</div></div></div>
         <div class="tray"><div class="row tray-head"><span class="ttl">Build by chapter and difficulty</span><span class="muted">How many from each chapter, then Auto-pick</span><span class="grow"></span>
-          <select id="bd" class="field auto" aria-label="Difficulty"><option value="">Mixed difficulty</option>${['easy', 'medium', 'hard'].map((b) => `<option value="${b}">${cap(b)} questions</option>`).join('')}</select>
+          <label class="opt sm-text"><input type="checkbox" id="reuse"> Allow reused questions</label>
           <button class="btn sm" id="even">Even split</button><button class="btn sm dark" id="auto">Auto-pick</button></div>
-          <div class="card cmixes">${SUBJECTS.map((s) => `<div class="cmix"><div class="row tight"><b>${cap(s)}</b><span class="grow"></span><span class="mono" id="cm-${s}">0 / 15</span></div>${CHAPTERS[s].map((c) => `<label class="cm"><span>${esc(c)}</span><input type="number" class="cn mono" min="0" max="15" data-s="${s}" data-c="${esc(c)}" value="0" aria-label="${esc(c)}"></label>`).join('')}</div>`).join('')}</div></div>
+          <div class="card tgtbar"><span class="muted">Last test: <b>${prevIds.length ? r1(avgOf(prevIds)) : '–'}</b> · Her last rating: <b>${om?.[0] ? Math.round(om[0].rating) : '–'}</b> ${INFO}</span><span class="grow"></span><span>Paper target <b class="mono" id="ptgt"></b></span></div>
+          <div class="card cmixes">${SUBJECTS.map((s) => { const f = freshN(s); return `<div class="cmix"><div class="row tight"><b>${cap(s)}</b><span class="grow"></span><span class="mono" id="cm-${s}">0 / 15</span></div>
+            <div class="tgt"><label class="row tight"><span>Target difficulty</span><span class="grow"></span><input type="number" class="field tg mono" data-s="${s}" min="1" max="100" step="0.5" value="${tgt0[s]}" aria-label="${cap(s)} target difficulty"></label>
+              <span class="muted xs">Last: ${last[s] == null ? '–' : r1(last[s])} · Her rating: ${herR[s] == null ? '–' : Math.round(herR[s])}</span>
+              <span class="xs ${f / 15 < 5 ? 'warnt' : 'muted'}">${f} fresh questions left ≈ ${Math.floor(f / 15)} tests</span><p class="tnote" id="tn-${s}" hidden></p></div>${CHAPTERS[s].map((c) => `<label class="cm"><span>${esc(c)}</span><input type="number" class="cn mono" min="0" max="15" data-s="${s}" data-c="${esc(c)}" value="0" aria-label="${esc(c)}"></label>`).join('')}</div>`; }).join('')}</div></div>
         <div class="tray"><div class="row tray-head"><span class="ttl">Questions</span><span class="muted">${held} on hold or out of syllabus, not shown</span><span class="grow"></span>
           <button class="btn sm" id="fill" title="Ticks random questions not used in any test until each subject has 15">Fill to 15 each</button></div>
           <div class="card flush"><div class="row ptool">
             <div class="tabs" role="tablist">${SUBJECTS.map((s, i) => `<button type="button" class="tab ${i ? '' : 'on'}" data-tab="${s}">${cap(s)} <span class="mono"><span class="n-${s}">0</span>/15</span></button>`).join('')}</div>
             <span class="grow"></span>
             <input id="qf" class="field auto" type="search" placeholder="Search text or chapter" aria-label="Search questions">
-            <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label></div>
+            <label class="opt sm-text"><input type="checkbox" id="hide"> Hide ones used in other tests</label><label class="opt sm-text"><input type="checkbox" id="near"> Only near target (±8)</label></div>
           ${SUBJECTS.map((s, i) => `
           <div class="pickcol" data-s="${s}" ${i ? 'hidden' : ''}><div class="list pick">${qs.filter((x) => x.subject === s && ((!x.hold && x.in_syllabus) || chosen.has(x.id))).map((x) => `
-            <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> <span class="mono muted" title="difficulty ${esc(bandOf(x.difficulty, cuts))}">${x.difficulty ?? '–'}</span> ${fmt(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted li">No questions.</span>'}</div></div>`).join('')}
+            <label data-t="${esc((x.chapter + ' ' + x.body).toLowerCase())}" data-u="${elsewhere.get(x.id) || 0}" data-d="${x.difficulty ?? ''}"><input type="checkbox" class="q" value="${x.id}" data-s="${s}" ${chosen.has(x.id) ? 'checked' : ''}><span><b>${esc(x.chapter) || '—'}</b> <span class="mono muted" title="difficulty ${esc(bandOf(x.difficulty, cuts))}">${x.difficulty ?? '–'}</span> ${fmt(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}${elsewhere.get(x.id) ? ` <span class="chip">in ${plural(elsewhere.get(x.id), 'test')}</span>` : ''}</span></label>`).join('') || '<span class="muted li">No questions.</span>'}</div></div>`).join('')}
           </div></div>
       </div>
       <aside class="te-side"><div class="tray"><div class="row tray-head"><span class="ttl">Summary</span></div><div class="card stack">
-        ${SUBJECTS.map((s) => `<div class="sumrow"><span>${cap(s)}</span><span class="grow"></span><span class="mono"><span class="n-${s}">0</span> / 15</span><span class="mbar"><i class="b-${s}"></i></span></div>`).join('')}
-        <div class="sumrow tot"><b>Total</b><span class="grow"></span><span class="mono"><b id="n-all">0</b> / 60</span></div>
+        <div class="sumrow sumh"><span class="grow"></span><span>Difficulty · target</span><span>Questions</span></div>
+        ${SUBJECTS.map((s) => `<div class="sumrow"><span>${cap(s)}</span><span class="grow"></span><span class="mono sd" id="sd-${s}"></span><span class="mono"><span class="n-${s}">0</span> / 15</span><span class="mbar"><i class="b-${s}"></i></span></div>`).join('')}
+        <div class="sumrow tot"><b>Total</b><span class="muted sm-text" id="pdiff"></span><span class="grow"></span><span class="mono"><b id="n-all">0</b> / 60</span></div>
         <label class="opt"><input type="checkbox" id="pub" ${t?.published ? 'checked' : ''}> Published</label>
         <p class="muted">She can download it 15 minutes before it opens. OMR minutes come out of the test time at the end: answers lock and she copies them to a paper OMR sheet (0 turns it off).</p>
         <div class="err" id="msg" role="alert"></div>
-        <button class="btn dark lg" id="save">Save test</button><button class="btn" id="back">Cancel</button>
+        <button class="btn dark lg" id="save" disabled>Save test</button>
       </div></div></aside>
     </div>`;
 
   const count = () => { let all = 0; SUBJECTS.forEach((s) => { const n = view.querySelectorAll(`.q[data-s=${s}]:checked`).length; all += n;
-    view.querySelectorAll(`.n-${s}`).forEach((e) => (e.textContent = n)); const b = view.querySelector(`.b-${s}`); b.style.width = Math.min(100, (n / 15) * 100) + '%'; b.classList.toggle('full', n === 15); }); $('#n-all').textContent = all; };
+    view.querySelectorAll(`.n-${s}`).forEach((e) => (e.textContent = n)); const b = view.querySelector(`.b-${s}`); b.style.width = Math.min(100, (n / 15) * 100) + '%'; b.classList.toggle('full', n === 15); });
+    $('#n-all').textContent = all; const T = tg(), sel = (s) => [...view.querySelectorAll(`.q${s ? `[data-s=${s}]` : ''}:checked`)].map((x) => x.value), pt = SUBJECTS.reduce((a, s) => a + T[s], 0) / 4;
+    SUBJECTS.forEach((s) => { const v = avgOf(sel(s)); $('#sd-' + s).innerHTML = `${v == null ? '–' : r1(v)}<span class="muted"> · ${r1(T[s])}</span>`; });
+    const pv = avgOf(sel()); $('#ptgt').textContent = r1(pt); $('#pdiff').innerHTML = `Paper difficulty <b>${pv == null ? '–' : r1(pv)}</b> · target ${r1(pt)}`;
+    $('#save').disabled = !$('#title').value.trim() || (!attempts && all !== 60); };
+  const tg = () => Object.fromEntries([...view.querySelectorAll('.tg')].map((i) => [i.dataset.s, Number(i.value) || 0]));
   view.querySelector('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (!b) return;
     view.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b)); view.querySelectorAll('.pickcol').forEach((c) => (c.hidden = c.dataset.s !== b.dataset.tab)); };
-  const filter = () => { const f = $('#qf').value.toLowerCase(), h = $('#hide').checked;
-    view.querySelectorAll('.pick label').forEach((l) => (l.hidden = (f && !l.dataset.t.includes(f)) || (h && l.dataset.u !== '0' && !l.querySelector('input').checked))); };
+  const filter = () => { const f = $('#qf').value.toLowerCase(), h = $('#hide').checked, nr = $('#near').checked, T = tg();
+    view.querySelectorAll('.pick label').forEach((l) => { const on = l.querySelector('input').checked, s = l.closest('.pickcol').dataset.s;
+      l.hidden = (f && !l.dataset.t.includes(f)) || (h && l.dataset.u !== '0' && !on) || (nr && !on && !(l.dataset.d !== '' && Math.abs(l.dataset.d - T[s]) <= 8)); }); };
   // Plain-language window: when it opens, the latest start that still finishes in time, when it closes
   const winTxt = () => {
     const s = Date.parse($('#start').value), h = Number($('#win').value), d = Number($('#dur').value) || 120, o = Number($('#omr').value) || 0;
@@ -758,8 +798,10 @@ async function vTestForm(t) {
     else parts.push('She can start any time after it opens.');
     $('#winTxt').textContent = parts.join(' ');
   };
-  view.onchange = () => { count(); filter(); winTxt(); };
-  view.oninput = (e) => { if (e.target.id === 'qf') filter(); else winTxt(); };
+  view.onchange = () => { dirty = true; count(); filter(); winTxt(); };
+  view.oninput = (e) => { dirty = true; if (e.target.id === 'qf') filter(); else if (e.target.id === 'title' || e.target.classList.contains('tg')) { count(); filter(); } else winTxt(); };
+  let dirty = false;
+  $('#goback').onclick = () => { if (!dirty || confirm('Discard this test?')) go('tests'); };
   count(); winTxt();
   // chapter mix: start from what the test already has, else an even split
   const meta = new Map(qs.map((x) => [x.id, x])), cn = (s, c) => view.querySelector(`.cn[data-s="${s}"][data-c="${CSS.escape(c)}"]`) ?? [...view.querySelectorAll(`.cn[data-s=${s}]`)].find((i) => i.dataset.c === c);
@@ -771,28 +813,29 @@ async function vTestForm(t) {
   else evenMix();
   showMix();
   view.addEventListener('input', (e) => { if (e.target.classList?.contains('cn')) showMix(); });
-  $('#even').onclick = () => { evenMix(); showMix(); };
+  $('#even').onclick = () => { evenMix(); showMix(); dirty = true; };
   $('#auto').onclick = () => {
     const bad = SUBJECTS.filter((s) => mixSum(s) !== 15);
     if (bad.length) return toast(`Chapter numbers must add up to 15 for ${bad.map(cap).join(', ')}.`);
-    const target = $('#bd').value, rnd = () => Math.random() - 0.5, lacks = [];
-    let reused = 0, off = 0;
+    const T = tg(), reuse = $('#reuse').checked; let nre = 0;
+    view.querySelectorAll('.rz').forEach((x) => x.remove());
     SUBJECTS.forEach((s) => {
-      const boxes = [...view.querySelectorAll(`.q[data-s=${s}]`)];
-      boxes.forEach((b) => (b.checked = false));
-      [...view.querySelectorAll(`.cn[data-s=${s}]`)].forEach((inp) => {
-        let need = Number(inp.value) || 0; if (!need) return;
-        const pool = boxes.filter((b) => meta.get(b.value).chapter === inp.dataset.c && meta.get(b.value).in_syllabus && !meta.get(b.value).hold)
-          .map((b) => { const q = meta.get(b.value), miss = target && bandOf(q.difficulty, cuts) !== target ? 1 : 0; return { b, miss, used: elsewhere.get(b.value) || 0, r: Math.random() }; })
-          .sort((x, y) => x.miss - y.miss || (x.used > 0) - (y.used > 0) || x.r - y.r);
-        const take = pool.slice(0, need); take.forEach((o) => { o.b.checked = true; reused += o.used ? 1 : 0; off += o.miss; });
-        if (take.length < need) lacks.push(`${inp.dataset.c} ${need - take.length} short`);
-      });
+      const boxes = [...view.querySelectorAll(`.q[data-s=${s}]`)], counts = {};
+      view.querySelectorAll(`.cn[data-s=${s}]`).forEach((i) => { if (Number(i.value) > 0) counts[i.dataset.c] = Number(i.value); });
+      const pool = boxes.map((b) => meta.get(b.value)).filter((q) => q.in_syllabus && !q.hold)
+        .map((q) => ({ id: q.id, chapter: q.chapter, d: q.difficulty, used: elsewhere.has(q.id), rank: (missed.has(q.id) ? 0 : 1e15) + (lastUsed.get(q.id) ?? 0) }));
+      const p = pickSubject({ pool, counts, target: T[s], reuse }), on = new Set(p.ids), re = new Set(p.reused);
+      boxes.forEach((b) => { b.checked = on.has(b.value); if (re.has(b.value)) b.nextElementSibling.insertAdjacentHTML('beforeend', ' <span class="chip rz">reused</span>'); });
+      nre += re.size;
+      const notes = [];
+      if (p.avg != null && Math.abs(p.avg - T[s]) > 1) notes.push(`${cap(s)}: reached ${r1(p.avg)} (not enough fresh questions near ${r1(T[s])})`);
+      if (p.short.length) notes.push(`Short: ${p.short.map(([c, n]) => `${c} ${n}`).join(', ')} (no ${reuse ? '' : 'fresh '}questions within ±8 of the target)`);
+      const tn = $('#tn-' + s); tn.textContent = notes.join(' · '); tn.hidden = !notes.length;
     });
-    count(); filter();
-    toast(`Picked.${off ? ` ${off} are outside the ${target} band (too few in the bank).` : ''}${reused ? ` ${reused} already used in other tests.` : ''}${lacks.length ? ` Short: ${lacks.join(', ')}.` : ''}`);
+    dirty = true; count(); filter();
+    toast(`Picked.${nre ? ` ${nre} reused.` : ''}`);
   };
-  if (attempts) view.querySelectorAll('.q, #neg, #fill, #auto, #even, .cn, #bd').forEach((x) => (x.disabled = true));
+  if (attempts) view.querySelectorAll('.q, #neg, #fill, #auto, #even, .cn, .tg, #reuse').forEach((x) => (x.disabled = true));
   $('#fill').onclick = () => {
     const short = [];
     SUBJECTS.forEach((s) => {
@@ -802,10 +845,9 @@ async function vTestForm(t) {
       while (need > 0 && pool.length) { pool.pop().checked = true; need--; }
       if (need > 0) short.push(`${cap(s)} needs ${need} more`);
     });
-    count(); filter();
+    dirty = true; count(); filter();
     toast(short.length ? `Not enough unused questions: ${short.join(', ')}` : 'Filled with unused questions');
   };
-  $('#back').onclick = () => go('tests');
   $('#save').onclick = async () => {
     const msg = $('#msg');
     if (!$('#title').value.trim() || !$('#start').value) return (msg.textContent = 'Title and opening time are needed.');
@@ -850,7 +892,7 @@ async function vResults(sid) {
   const d = await studentData(sid);
   if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
   const { data: ts } = await sb.from('tests').select('*');
-  const met = await metricsOf((q) => q.eq('student_id', d.sid));
+  const [met, sm] = await Promise.all([metricsOf((q) => q.eq('student_id', d.sid)), subMetricsOf((q) => q.eq('student_id', d.sid))]);
   const testOf = (id) => ts?.find((t) => t.id === id) ?? {};
   view.innerHTML = `<div class="head"><div class="title"><h1>Results</h1><span class="muted desc">Every submitted attempt. Open one for subject scores and flags.</span></div></div>
     <section class="sec"><div class="sec-h"><h2>${plural(d.attempts.length, 'attempt')}</h2></div><div class="sep">${[...d.attempts].reverse().map((a) => {
@@ -861,10 +903,10 @@ async function vResults(sid) {
       const dd = prev ? pct(a) - pct(prev) : 0;
       return `<details class="rv"><summary class="rs rrow"><span class="col"><span class="t1">${esc(a.title)}</span><span class="muted">${when(a.submitted_at)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''} · ${esc(stratName(a.strategy))}</span>
           ${openFlags(a) ? `<span class="flagtxt">! ${esc(flagLine(a))}</span>` : (a.flags || []).length ? '<span class="muted">Flags ignored</span>' : ''}</span>
-        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating ${Math.round(m.rating)} ${chg(m.rating_change, 0)}</span>` : ''; })()}</summary>
+        <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating${INFO} ${Math.round(m.rating)} ${chg(m.rating_change, 0)}</span>` : ''; })()}</summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
-        <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th></tr>
-        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td></tr>`).join('')}</table>
+        <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th><th>Difficulty</th><th>Rating ${INFO}</th></tr>
+        ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td>${(() => { const x = sm.get(a.id + '|' + s.subject); return x ? `<td class="mono">${r1(x.paper_difficulty)}</td><td class="mono">${Math.round(x.rating)} ${chg(x.rating_change, 0)}</td>` : '<td class="mono">–</td><td class="mono">–</td>'; })()}</tr>`).join('')}</table>
         ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}
         <div class="row"><button class="btn sm" data-sheet="${a.test_id}" data-att="${a.id}">Answer sheet</button></div></div></details>`;
     }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></section>`;
@@ -879,7 +921,7 @@ async function vSheet(arg) {
   view.onchange = (e) => { if (e.target.id === 'attsel') vSheet({ ...arg, attempt: e.target.value }); };
   const r = await rpc('get_result', { p_test: arg.test, p_student: arg.sid, p_attempt: arg.attempt });
   if (r.error) return (view.innerHTML = `<p class="err">${esc(r.error.message)}</p>`);
-  const m = (await sb.from('attempt_metrics').select('*').eq('attempt_id', r.data.attempt.id).maybeSingle()).data;
+  const [m, sm] = await Promise.all([sb.from('attempt_metrics').select('*').eq('attempt_id', r.data.attempt.id).maybeSingle().then((x) => x.data), subMetricsOf((q) => q.eq('attempt_id', r.data.attempt.id))]);
   const { attempt: a, test, questions: qs, attempts = [] } = r.data, times = a.times || {}, marked = a.marked || [];
   const lbl = { C: ['ok', '✓ Correct'], W: ['bad', '✗ Wrong'], S: ['', '– Skipped'] };
   const slow = [...qs].sort((x, y) => (times[y.id] || 0) - (times[x.id] || 0)).slice(0, 5).filter((q) => times[q.id]);
@@ -887,8 +929,10 @@ async function vSheet(arg) {
     <div class="sheetgrid solo"><div class="bento">
       <div class="card bc"><span class="k">Marks</span><span class="v">${a.score}<small> / 240</small>${chg(m?.score_change)}</span></div>
       <div class="card bc"><span class="k">Paper difficulty</span><span class="v">${m ? Math.round(m.paper_difficulty) : '–'}</span>${m ? `<span class="muted">${diffLabel(m.paper_difficulty)}</span>` : ''}</div>
-      <div class="card bc"><span class="k">Rating</span><span class="v">${m ? Math.round(m.rating) : '–'}${chg(m?.rating_change, 0)}</span></div>
+      <div class="card bc"><span class="k">Rating ${INFO}</span><span class="v">${m ? Math.round(m.rating) : '–'}${chg(m?.rating_change, 0)}</span></div>
       <div class="card bc"><span class="k">Correct / Wrong / Skipped</span><span class="v cws"><span class="up">${a.correct}</span><span class="down">${a.wrong}</span><span>${a.skipped}</span></span></div>
+      ${sm.size ? `<div class="card bc bsub"><span class="k">By subject</span><div class="sg"><span class="h">Subject</span><span class="h">Score /60</span><span class="h">Difficulty</span><span class="h">Rating ${INFO}</span>
+        ${SUBJECTS.map((s) => sm.get(a.id + '|' + s)).filter(Boolean).map((x) => `<span>${cap(x.subject)}</span><span class="mono">${r1(x.score)}${+x.score >= 60 ? ' <span class="chip ok mx">max</span>' : ''}</span><span class="mono">${r1(x.paper_difficulty)}</span><span class="mono">${Math.round(x.rating)} ${chg(x.rating_change, 0)}</span>`).join('')}</div></div>` : ''}
     </div><div id="omrph"></div></div>
     ${attempts.length > 1 ? `<label class="row tight attpick"><span class="muted">Attempt</span><select id="attsel" class="field auto">${attempts.map((x) => `<option value="${x.id}" ${x.id === a.id ? 'selected' : ''}>Attempt ${x.attempt_no} · ${x.score}</option>`).join('')}</select></label>` : ''}
     ${slow.length ? `<div class="tray"><span class="lbl">Most time spent</span><div class="card list">${slow.map((q) => `<div class="li"><span class="mono muted">${cap(q.subject.slice(0, 3))} ${qs.filter((x) => x.subject === q.subject).indexOf(q) + 1}</span><span class="grow">${fmt(q.body.slice(0, 80))}</span><span class="chip ${lbl[verdictOf(a.answers[q.id], q.correct)][0]}">${lbl[verdictOf(a.answers[q.id], q.correct)][1]}</span><span class="mono">${mmss(times[q.id])}</span></div>`).join('')}</div></div>` : ''}
@@ -906,14 +950,18 @@ async function vReport(sid, days = 7) { // days: 7 | 14 | 30 | 'all'
   if (d.error) return (view.innerHTML = `<h1>Report</h1><p class="muted">${esc(d.error)}</p>`);
   const since = days === 'all' ? 0 : Date.now() - days * 864e5, from = days === 'all' ? (d.attempts[0] ? Date.parse(d.attempts[0].submitted_at) : Date.now()) : since;
   const rep = periodReport(d.attempts, d.answers, since);
+  const sm = [...(await subMetricsOf((q) => q.eq('student_id', d.sid).gte('submitted_at', new Date(since).toISOString()))).values()].sort((x, y) => (x.submitted_at < y.submitted_at ? -1 : 1));
+  const avg3 = {}; sm.forEach((x) => (avg3[x.subject] = +x.rating_avg3)); // latest in the period wins
+  const ranked = Object.keys(avg3).sort((x, y) => avg3[y] - avg3[x]);
   const day = (ms) => new Date(ms).toLocaleDateString([], { dateStyle: 'medium' });
   view.innerHTML = `<div class="head"><div class="title"><h1>${days === 7 ? 'Weekly' : days === 'all' ? 'All-time' : days + '-day'} report</h1><span class="muted">${day(from)} – ${day(Date.now())}</span></div></div>
     <div class="row noprint repbar"><div class="pseg" id="days" role="group" aria-label="Period">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], ['all', 'All']].map(([n, l]) => `<button class="${n === days ? 'on' : ''}" data-d="${n}" aria-pressed="${n === days}">${l}</button>`).join('')}</div><span class="grow"></span><button class="btn dark" id="print">Print / PDF</button></div>
     ${rep.tests ? `<div class="stats">${stat('Tests taken', rep.tests)}${stat('Average', rep.avg + '%')}${stat('Best', rep.best + '%')}${stat('Flags', rep.flags.fullscreen_exit + rep.flags.tab_hidden, `${plural(rep.flags.fullscreen_exit, 'exit')} · ${plural(rep.flags.tab_hidden, 'switch', 'switches')}`)}</div>
       <div class="tray"><span class="lbl">Scores</span><div class="card">${areaSvg(rep.attempts.slice(-8).map((a) => ({ label: new Date(a.submitted_at).toLocaleDateString([], { day: 'numeric', month: 'short' }), value: pct(a) })), Math.max(300, Math.min(900, view.clientWidth - 40)))}</div></div>
-      <div class="tray"><span class="lbl">Summary</span><div class="card"><ul class="bul">${rep.strongest ? `<li>Strongest: <b>${cap(rep.strongest.subject)}</b> · ${rep.strongest.acc}% accuracy</li>` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `<li>Weakest: <b>${cap(rep.weakest.subject)}</b> · ${rep.weakest.acc}% accuracy</li>` : ''}${rep.strategies[0] ? `<li>Best strategy: <b>${esc(stratName(rep.strategies[0].strategy))}</b> · ${rep.strategies[0].avg}% average</li>` : ''}</ul></div></div>
+      <div class="tray"><span class="lbl">Summary</span><div class="card"><ul class="bul">${rep.strongest ? `<li>Strongest: <b>${cap(rep.strongest.subject)}</b> · ${rep.strongest.acc}% accuracy</li>` : ''}${rep.weakest && rep.weakest !== rep.strongest ? `<li>Weakest: <b>${cap(rep.weakest.subject)}</b> · ${rep.weakest.acc}% accuracy</li>` : ''}${rep.strategies[0] ? `<li>Best strategy: <b>${esc(stratName(rep.strategies[0].strategy))}</b> · ${rep.strategies[0].avg}% average</li>` : ''}${ranked.length > 1 ? `<li>Highest rated: <b>${cap(ranked[0])}</b> · Lowest rated: <b>${cap(ranked.at(-1))}</b></li>` : ''}</ul></div></div>
       <div class="split"><div class="tray"><span class="lbl">By subject</span><div class="sep">${rep.subjects.map((s) => `<div class="subj"><b>${cap(s.subject)}</b><span class="muted skp">${s.skipped} skipped</span>
           <div><span class="k">Accuracy</span><span class="mono">${s.acc == null ? '–' : s.acc + '%'}</span></div><div><span class="k">Per question</span><span class="mono">${mmss(s.perQ)}</span></div>
+          <div><span class="k">Rating ${INFO}</span><span class="mono">${s.subject in avg3 ? Math.round(avg3[s.subject]) : '–'}</span><span class="k">3-test average</span></div>
           <div><span class="k">Right</span><span class="mono">${s.right}</span></div><div><span class="k">Wrong</span><span class="mono">${s.wrong}</span></div></div>`).join('')}</div></div>
       <div class="tray"><span class="lbl">Weakest chapters</span><div class="card list">${rep.weak.map((c) => `<div class="li"><div class="col"><span>${esc(c.chapter)}</span><span class="muted">${cap(c.subject)}</span></div><span class="num-r">${c.right}/${c.total}</span></div>`).join('') || '<p class="muted li">None yet</p>'}</div></div></div>`
       : '<p class="muted">No tests submitted in this period.</p>'}`;

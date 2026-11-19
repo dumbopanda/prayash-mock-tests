@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg, diffLabel, dualSvg, fitRange } from './util.js';
+import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg, diffLabel, dualSvg, fitRange, pickSubject } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -122,3 +122,25 @@ assert.deepEqual(fitRange([40, 62], 12, 5, 100), [20, 80]);
 assert.deepEqual(fitRange([120, 160], 30, 10, 240), [80, 200]);
 assert.deepEqual(fitRange([90, 98], 12, 5, 100), [60, 100]);
 console.log('metrics ok');
+
+// pickSubject: lands within target ±1 when the bank has enough fresh questions near it
+{
+  const pool = [], ch = ['a', 'b', 'c', 'd'];
+  ch.forEach((c) => { for (let i = 0; i < 60; i++) pool.push({ id: c + i, chapter: c, d: 5 + ((i * 7) % 56), used: i % 5 === 0, rank: i }); });
+  const counts = { a: 4, b: 4, c: 4, d: 3 }, seen = new Set();
+  for (const T of [12, 17.5, 20, 24.3, 40]) for (let r = 0; r < 100; r++) {
+    const p = pickSubject({ pool, counts, target: T }), by = new Map(pool.map((q) => [q.id, q]));
+    assert.equal(p.ids.length, 15); assert.equal(new Set(p.ids).size, 15); assert.deepEqual(p.short, []);
+    assert.ok(Math.abs(p.avg - T) <= 1, `avg ${p.avg} vs target ${T}`);
+    p.ids.forEach((id) => { const q = by.get(id); assert.ok(!q.used && Math.abs(q.d - T) <= 8); });
+    ch.forEach((c) => assert.equal(p.ids.filter((id) => by.get(id).chapter === c).length, counts[c]));
+    seen.add(p.ids.slice().sort().join());
+  }
+  assert.ok(seen.size > 50, 'picks are random');
+  // reuse: fresh first, then used ones by rank; off = short
+  const small = [{ id: 'f', chapter: 'x', d: 20 }, { id: 'u2', chapter: 'x', d: 20, used: true, rank: 2 }, { id: 'u1', chapter: 'x', d: 21, used: true, rank: 1 }, { id: 'u3', chapter: 'x', d: 19, used: true, rank: 3 }];
+  const re = pickSubject({ pool: small, counts: { x: 3 }, target: 20, reuse: true });
+  assert.deepEqual([...re.ids].sort(), ['f', 'u1', 'u2']); assert.deepEqual([...re.reused].sort(), ['u1', 'u2']);
+  assert.deepEqual(pickSubject({ pool: small, counts: { x: 3 }, target: 20 }).short, [['x', 2]]);
+  console.log('pick ok');
+}
