@@ -135,7 +135,7 @@ const DAY = 864e5;
 const statusOf = (t) => { const s = Date.parse(t.start_at), n = Date.now(); return !t.published ? 'Draft' : n < s ? 'Upcoming' : t.end_at && n > Date.parse(t.end_at) ? 'Closed' : n < s + t.duration_min * 60000 ? 'Live' : 'Open'; };
 const statusChip = (t) => { const s = statusOf(t); return `<span class="chip ${s === 'Live' ? 'ok' : ''}">${s === 'Live' ? '● ' : ''}${s}</span>`; };
 
-let DP = (() => { try { return localStorage.dashPeriod || '7'; } catch { return '7'; } })(); // dashboard period: 7 | 30 | all
+let DP = 'all'; // dashboard period: 7 | 30 | all
 const FLAG = { fullscreen_exit: 'Left fullscreen', tab_hidden: 'Switched away or screen off', abandoned: 'Started but never submitted' };
 const flagLine = (a) => { const c = {}; (a.flags || []).forEach((f) => (c[f.type] = (c[f.type] || 0) + 1)); return Object.entries(c).map(([k, n]) => `${FLAG[k] ?? k} ×${n}`).join(' · ') || 'None'; };
 const openFlags = (a) => (a.flags || []).length > 0 && !a.flags_ignored;
@@ -238,14 +238,13 @@ async function vDash() {
   const attemptsOf = (t) => all.filter((a) => a.test_id === t.id).length;
 
   // hero: latest score, change since the one before, average for the period, then the trend
-  const last = inP.at(-1), prev = inP.at(-2), avg = inP.length ? Math.round(inP.reduce((n, a) => n + pct(a), 0) / inP.length) : null;
-  const d = last && prev ? pct(last) - pct(prev) : null;
-  const mp = inP.filter((a) => met.has(a.id)).map((a) => { const m = met.get(a.id); return { label: day(a.submitted_at), title: a.title, marks: +m.score, rating: +m.rating, diff: +m.paper_difficulty }; });
+  const last = inP.at(-1), lm = last && met.get(last.id); // latest marks and rating, each with the change since her previous attempt
+  const mp = inP.filter((a) => met.has(a.id)).map((a) => { const m = met.get(a.id); return { label: new Date(a.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), title: a.title, marks: +m.score, rating: +m.rating, diff: +m.paper_difficulty }; });
   const w = Math.max(300, Math.min(900, view.clientWidth - 40));
   const per = `<div class="pseg" id="per" role="group" aria-label="Time period">${[['7', '7 days'], ['30', '30 days'], ['all', 'All']].map(([v, l]) => `<button class="${v === DP ? 'on' : ''}" data-p="${v}" aria-pressed="${v === DP}">${l}</button>`).join('')}</div>`;
   const hero = `<section class="sec"><div class="sec-h"><h2>Score trend</h2><span class="grow"></span>${per}</div><div class="card hero2">
-    ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest</span><span class="v">${pct(last)}%${d ? `<span class="dlt ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</span></div>
-      <div class="kpi"><span class="k">Average</span><span class="v">${avg}%</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
+    ${last ? `<div class="kpis"><div class="kpi"><span class="k">Latest marks</span><span class="v">${lm ? r1(lm.score) : last.score}${chg(lm?.score_change)}</span></div>
+      <div class="kpi"><span class="k">Latest rating</span><span class="v">${lm ? Math.round(lm.rating) : '–'}${chg(lm?.rating_change, 0)}</span></div><div class="kpi"><span class="k">Tests</span><span class="v">${inP.length}</span></div></div>
       <div class="lg"><span><i></i>Marks</span><span><i class="r"></i>Rating</span></div>
       <div class="trendw">${mp.length ? dualSvg(mp, w) : '<p class="muted">No rating yet.</p>'}<div class="tip" hidden></div></div>` : `<p class="muted">No tests submitted in this period.</p>`}</div></section>`;
 
@@ -286,7 +285,7 @@ async function vDash() {
   if (tip) { const tw = $('.trendw'); tw.onpointerover = (e) => { const c = e.target.closest('.hit'); if (c && e.pointerType === 'mouse') show(c); }; tw.onpointerleave = (e) => { if (e.pointerType === 'mouse') hide(); }; }
   view.onclick = (e) => {
     const h = e.target.closest('.hit'); if (h) return show(h); hide();
-    const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; try { localStorage.dashPeriod = DP; } catch {} return vDash(); }
+    const b = e.target.closest('[data-p]'); if (b) { DP = b.dataset.p; return vDash(); }
     const s = e.target.closest('[data-sheet]'); if (s) { e.preventDefault(); go('sheet', { test: s.dataset.sheet, sid: s.dataset.sid, attempt: s.dataset.att }); }
   };
 }

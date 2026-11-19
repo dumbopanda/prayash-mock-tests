@@ -263,23 +263,37 @@ export function areaSvg(points, w = 360, h = 170) {
 // Paper difficulty label (avg question difficulty, 1-100)
 export const diffLabel = (d) => { const v = Math.round(d); return v <= 20 ? 'Easy' : v <= 40 ? 'Low-medium' : v <= 60 ? 'Medium' : 'Hard'; };
 
-// Two lines over tests: marks (left axis 0-240) and rating (right axis 0-100). points: {label, marks, rating}
-// Each test gets a full-height tap column (.hit) so the nearest test is always the one picked.
-export function dualSvg(points, w = 360, h = 200) {
-  const L = 34, R = 40, T = 14, B = 24, n = points.length, cw = n < 2 ? w - L - R : (w - L - R) / (n - 1);
-  const x = (i) => (n < 2 ? (L + w - R) / 2 : L + i * cw), yy = (f) => T + (1 - f) * (h - T - B);
-  const my = (p) => yy(Math.min(1, Math.max(0, p.marks / 240))), ry = (p) => yy(Math.min(1, Math.max(0, p.rating / 100)));
-  const path = (f) => points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${f(p)}`).join(' ');
-  const keep = new Set([n - 1]); let last = -1e9; // date labels at least 52px apart, the last one always shown
-  let prev = null; // and a date is not repeated for two tests on the same day
-  for (let i = 0; i < n - 1; i++) if (x(i) - last >= 52 && x(n - 1) - x(i) >= 52 && points[i].label !== prev && points[i].label !== points[n - 1].label) { keep.add(i); last = x(i); prev = points[i].label; }
-  const lab = (i) => `<text class="xl" x="${x(i)}" y="${h - 6}" text-anchor="${n < 2 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(points[i].label)}</text>`;
+// Two smooth lines over tests: marks (left axis) and rating (right axis), each axis fitted to the data with padding
+// (marks ±30, rating ±12, kept inside 0-240 / 0-100). A faint drop line ties every test to its date; dates are rotated.
+// Each test gets a full-height tap column (.hit) so the nearest test is always the one picked. points: {label, marks, rating}
+export function fitRange(vs, pad, unit, max) { // [lo, hi] with 4 round steps between them
+  const a = Math.max(0, Math.min(...vs) - pad), b = Math.min(max, Math.max(...vs) + pad);
+  let lo = Math.floor(a / unit) * unit;
+  const step = [5, 10, 15, 20, 25, 30, 40, 50, 60].find((s) => s >= (b - lo) / 4 && s % (unit === 10 ? 10 : 5) === 0) ?? 60;
+  const c = Math.max(0, Math.floor(((a + b) / 2 - 2 * step) / unit) * unit); // centre the data when the round steps leave slack
+  if (c <= a && c + 4 * step >= b) lo = c;
+  let hi = lo + 4 * step;
+  if (hi > max) { hi = max; lo = Math.max(0, max - 4 * step); }
+  return [lo, hi];
+}
+let dualN = 0;
+export function dualSvg(points, w = 360, h = 230) {
+  const L = 34, R = 40, T = 14, B = 52, n = points.length, cw = n < 2 ? w - L - R : (w - L - R) / (n - 1), id = `dg${++dualN}`;
+  const x = (i) => (n < 2 ? (L + w - R) / 2 : L + i * cw), base = h - B, yy = (f) => T + (1 - f) * (base - T);
+  const [mlo, mhi] = fitRange(points.map((p) => p.marks), 30, 10, 240), [rlo, rhi] = fitRange(points.map((p) => p.rating), 12, 5, 100);
+  const my = (p) => yy((Math.min(mhi, Math.max(mlo, p.marks)) - mlo) / (mhi - mlo || 1)), ry = (p) => yy((Math.min(rhi, Math.max(rlo, p.rating)) - rlo) / (rhi - rlo || 1));
+  const curve = (f) => { const P = points.map((p, i) => [x(i), f(p)]); return P.map(([px, py], i) => (i ? `C${(P[i - 1][0] + px) / 2},${P[i - 1][1]} ${(P[i - 1][0] + px) / 2},${py} ${px},${py}` : `M${px},${py}`)).join(' '); };
+  const area = (f, c) => `<path d="${curve(f)} L${x(n - 1)},${base} L${x(0)},${base} Z" fill="url(#${id}${c})"/>`;
+  const grad = (c, col) => `<linearGradient id="${id}${c}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="${c === 'm' ? .16 : .12}"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient>`;
+  const fs = [0, .25, .5, .75, 1];
   return `<svg class="area dual" viewBox="0 0 ${w} ${h}" role="img" aria-label="Marks and rating by test: ${esc(points.map((p) => `${p.title ?? p.label} marks ${p.marks}, rating ${Math.round(p.rating)}`).join('; '))}">
-    ${[0, .25, .5, .75, 1].map((f) => `<line class="gr" x1="${L}" x2="${w - R}" y1="${yy(f)}" y2="${yy(f)}"/><text class="yl" x="${L - 6}" y="${yy(f) + 4}" text-anchor="end">${240 * f}</text><text class="yl yr" x="${w - 6}" y="${yy(f) + 4}" text-anchor="end">${100 * f}</text>`).join('')}
-    <line class="guide" x1="0" x2="0" y1="${T}" y2="${h - B}" visibility="hidden"/>
-    ${n > 1 ? `<path class="ln" d="${path(my)}"/><path class="ln r" d="${path(ry)}"/>` : ''}
-    ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${my(p)}" r="4.5"/><circle class="dot r" cx="${x(i)}" cy="${ry(p)}" r="4.5"/>`).join('')}
-    ${[...keep].sort((a, b) => a - b).map(lab).join('')}
+    <defs>${grad('m', '#1E4ED8')}${grad('r', '#D97706')}</defs>
+    ${fs.map((f) => `<line class="gr" x1="${L}" x2="${w - R}" y1="${yy(f)}" y2="${yy(f)}"/><text class="yl" x="${L - 6}" y="${yy(f) + 4}" text-anchor="end">${Math.round(mlo + f * (mhi - mlo))}</text><text class="yl yr" x="${w - 6}" y="${yy(f) + 4}" text-anchor="end">${Math.round(rlo + f * (rhi - rlo))}</text>`).join('')}
+    ${points.map((p, i) => `<line class="drop" x1="${x(i)}" x2="${x(i)}" y1="${Math.min(my(p), ry(p))}" y2="${base}"/>`).join('')}
+    <line class="guide" x1="0" x2="0" y1="${T}" y2="${base}" visibility="hidden"/>
+    ${n > 1 ? `${area(my, 'm')}${area(ry, 'r')}<path class="ln" d="${curve(my)}"/><path class="ln r" d="${curve(ry)}"/>` : ''}
+    ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${my(p)}" r="4"/><circle class="dot r" cx="${x(i)}" cy="${ry(p)}" r="4"/>`).join('')}
+    ${points.map((p, i) => `<text class="xl" transform="rotate(-90 ${x(i) + 3.5} ${base + 8})" x="${x(i) + 3.5}" y="${base + 8}" text-anchor="end">${esc(p.label)}</text>`).join('')}
     ${points.map((p, i) => `<rect class="hit" data-i="${i}" data-x="${x(i)}" x="${n < 2 ? L : Math.max(L - 8, x(i) - cw / 2)}" y="0" width="${n < 2 ? w - L - R : Math.min(cw, x(i) - Math.max(L - 8, x(i) - cw / 2) + cw / 2)}" height="${h}"/>`).join('')}</svg>`;
 }
 

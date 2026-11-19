@@ -1077,3 +1077,7 @@ svg.area{width:100%;height:auto;display:block}
 .dual .guide{stroke:var(--ring);stroke-width:1;stroke-dasharray:3 3}
 #adm .rs .mx{margin-top:-.15rem}
 @media(min-width:641px) and (max-width:899px){.sheetgrid .bento{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* trend v2: smooth lines, fade fills, drop lines, rotated dates */
+.dual .ln{stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.dual .drop{stroke:var(--rule);stroke-width:1;stroke-dasharray:2 3}
+.dual .xl{font-size:10px}

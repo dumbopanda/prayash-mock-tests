@@ -1,6 +1,6 @@
 // Run: node util.test.mjs
 import assert from 'node:assert/strict';
-import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg, diffLabel, dualSvg } from './util.js';
+import { CHAPTERS, bandCuts, bandOf, windowOf, boxSubject, omrColumns, guessValue, qStatus, stateCounts, attemptKind, parseCSV, readQuestions, fmt, phaseOf, chapterStats, strategyStats, subjectStats, mistakes, periodReport, trendSvg, CSV_HEADER, mmss, plural, stratName, barsSvg, diffLabel, dualSvg, fitRange } from './util.js';
 
 assert.deepEqual(parseCSV('a,"b,c","d ""x"""\n1,2,3\r\n'), [['a', 'b,c', 'd "x"'], ['1', '2', '3']]);
 assert.deepEqual(parseCSV('a,"multi\nline"\nz,y'), [['a', 'multi\nline'], ['z', 'y']]);
@@ -116,4 +116,9 @@ console.log('bands ok');
 
 assert.deepEqual([20, 21, 40, 41, 60, 61].map(diffLabel), ['Easy', 'Low-medium', 'Low-medium', 'Medium', 'Medium', 'Hard']);
 assert.match(dualSvg([{ label: 'a', marks: 120, rating: 50 }, { label: 'b', marks: 240, rating: 0 }]), /<path class="ln r"/);
+assert.deepEqual(fitRange([70, 200], 30, 10, 240), [30, 230]);
+assert.deepEqual(fitRange([10, 235], 30, 10, 240), [0, 240]);
+assert.deepEqual(fitRange([40, 62], 12, 5, 100), [20, 80]);
+assert.deepEqual(fitRange([120, 160], 30, 10, 240), [80, 200]);
+assert.deepEqual(fitRange([90, 98], 12, 5, 100), [60, 100]);
 console.log('metrics ok');
