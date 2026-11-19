@@ -1008,3 +1008,18 @@ svg.area{width:100%;height:auto;display:block}
 /* Question bank bar */
 .qbar{margin-bottom:-.3rem}
 @media(min-width:641px){#ftog{display:none}}
+
+/* Question bank: denser rows, quiet count, less dead space (phone) */
+@media(max-width:640px){
+  #adm #qt tr{padding:.5rem 0 .5rem 2rem;gap:.15rem .6rem}
+  #adm #qt td.ck{top:.55rem}
+  #adm #qt td.qcell .qmeta{margin-top:.15rem;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+  #adm #qt td.qcell .qmeta>:first-child{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #adm #qt td.mono{font-size:.8rem}
+  #adm #qt td.actions .btn{min-height:1.75rem;height:1.75rem;padding:0 .6rem;font-size:.8rem}
+  #adm .card.tbl{padding-top:0;padding-bottom:0}
+  #adm .tray-head:not(.has-sel){margin:0}
+  #adm .tray-head:not(.has-sel) .ttl{font:400 .8rem Inter,sans-serif;color:var(--muted)}
+  #adm .main .tray:has(#qt){gap:.2rem}
+  #adm .qbar{margin-bottom:-.5rem}
+}
