@@ -1117,3 +1117,4 @@ svg.area{width:100%;height:auto;display:block}
 .nt .formula{display:block;margin-top:.2rem;font-family:var(--mono);font-size:var(--fs-sm);background:var(--tray);border-radius:.375rem;padding:.2rem .5rem;width:fit-content;max-width:100%;overflow-wrap:anywhere}
 .nt .x{font-size:.75rem;color:var(--muted);padding-top:.15rem}
 .nt.got{opacity:.45}
+.btn.lg{align-items:center;justify-content:center}
