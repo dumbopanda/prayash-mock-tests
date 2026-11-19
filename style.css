@@ -1103,3 +1103,17 @@ svg.area{width:100%;height:auto;display:block}
 .tgt .tg{width:6rem}
 #save{display:flex;width:100%;align-items:center;justify-content:center}
 .sumrow .sd{min-width:5.75rem;text-align:right}.sumrow.tot #pdiff{order:0;flex:0 1 auto}
+/* review before the answer sheet, and Notes */
+.sq.ru{background:#FEF3C7;color:#92400E;border:1.5px solid #F59E0B}
+.rtw .optrow{cursor:pointer}
+.rtw .xm-foot .btn.on{background:#FEF3C7;border-color:#F59E0B;color:#92400E}
+.tbanner.rgate{background:#92400E}
+.revgate{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap}
+.nbar #nq{flex:0 1 14rem;min-width:9rem}
+.nch summary{display:flex;align-items:center;gap:var(--s2)}
+.nts{list-style:none;margin:0;padding:0 var(--s4) var(--s3)}
+.nt{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--rule);line-height:1.5}
+.nt:first-child{border-top:0}
+.nt .formula{display:block;margin-top:.2rem;font-family:var(--mono);font-size:var(--fs-sm);background:var(--tray);border-radius:.375rem;padding:.2rem .5rem;width:fit-content;max-width:100%;overflow-wrap:anywhere}
+.nt .x{font-size:.75rem;color:var(--muted);padding-top:.15rem}
+.nt.got{opacity:.45}

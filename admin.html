@@ -894,6 +894,8 @@ async function studentData(sid) {
   return { sid, name: studs.find((s) => s.id === sid).name, ...r.data };
 }
 
+// her review of the wrong and skipped questions: done, how many left, or not required
+const revTxt = (a) => { const n = a.wrong + a.skipped; return !n ? '' : a.reviewed >= n ? '<span class="muted">Review done ✓</span>' : a.review_waived ? `<span class="muted">Review optional · ${a.reviewed} of ${n}</span>` : `<span class="flagtxt">Review: ${n - a.reviewed} of ${n} left</span>`; };
 async function vResults(sid) {
   const d = await studentData(sid);
   if (d.error) return (view.innerHTML = `<h1>Results</h1><p class="muted">${esc(d.error)}</p>`);
@@ -908,15 +910,17 @@ async function vResults(sid) {
       const prev = d.attempts.find((x) => x.test_id === a.test_id && x.attempt_no === a.attempt_no - 1);
       const dd = prev ? pct(a) - pct(prev) : 0;
       return `<details class="rv"><summary class="rs rrow"><span class="col"><span class="t1">${esc(a.title)}</span><span class="muted">${when(a.submitted_at)}${a.attempt_no ? ` · attempt ${a.attempt_no}` : ''} · ${esc(stratName(a.strategy))}</span>
-          ${openFlags(a) ? `<span class="flagtxt">! ${esc(flagLine(a))}</span>` : (a.flags || []).length ? '<span class="muted">Flags ignored</span>' : ''}</span>
+          ${openFlags(a) ? `<span class="flagtxt">! ${esc(flagLine(a))}</span>` : (a.flags || []).length ? '<span class="muted">Flags ignored</span>' : ''}${revTxt(a)}</span>
         <span class="col r"><span class="pc">${pct(a)}%</span><span class="muted mono">${a.score}/${a.max}${dd ? ` · <span class="${dd > 0 ? 'up' : 'down'}">${dd > 0 ? '+' : '−'}${Math.abs(dd)}</span>` : ''}</span></span>${(() => { const m = met.get(a.id); return m ? `<span class="mx muted">Difficulty ${Math.round(m.paper_difficulty)} · Rating${INFO} ${Math.round(m.rating)} ${chg(m.rating_change, 0)}</span>` : ''; })()}</summary>
         <div class="stack qblock"><span class="muted">Active time ${Math.round(active / 60)} min</span>
         <table><tr><th>Subject</th><th>Score</th><th>Right</th><th>Wrong</th><th>Skipped</th><th>Accuracy</th><th>Time</th><th>Per question</th><th>Difficulty</th><th>Rating ${INFO}</th></tr>
         ${subs.map((s) => `<tr><td>${cap(s.subject)}</td><td class="mono">${s.score} / ${s.max}</td><td class="mono">${s.right}</td><td class="mono">${s.wrong}</td><td class="mono">${s.skipped}</td><td class="mono">${s.acc == null ? '–' : s.acc + '%'}</td><td class="mono">${mmss(s.secs)}</td><td class="mono">${mmss(s.perQ)}</td>${(() => { const x = sm.get(a.id + '|' + s.subject); return x ? `<td class="mono">${r1(x.paper_difficulty)}</td><td class="mono">${Math.round(x.rating)} ${chg(x.rating_change, 0)}</td>` : '<td class="mono">–</td><td class="mono">–</td>'; })()}</tr>`).join('')}</table>
         ${(a.flags || []).length ? `<span class="lbl">Flag log</span>${a.flags.map((f) => `<div class="mono sm-text">${new Date(f.t).toLocaleTimeString()} · ${FLAG[f.type] ?? esc(f.type)}</div>`).join('')}` : ''}
-        <div class="row"><button class="btn sm" data-sheet="${a.test_id}" data-att="${a.id}">Answer sheet</button></div></div></details>`;
+        <div class="row"><button class="btn sm" data-sheet="${a.test_id}" data-att="${a.id}">Answer sheet</button>${a.reviewed < a.wrong + a.skipped ? `<button class="btn sm" data-waive="${a.id}" data-on="${!a.review_waived}">${a.review_waived ? 'Make review required' : 'Unlock next test without review'}</button>` : ''}</div></div></details>`;
     }).join('') || '<p class="muted">No submitted attempts yet.</p>'}</div></section>`;
   view.onclick = async (e) => {
+    const w = e.target.closest('[data-waive]');
+    if (w) { const { error } = await rpc('set_review_waived', { p_attempt: w.dataset.waive, p_on: w.dataset.on === 'true' }); return error ? toast(error.message) : vResults(sid); }
     const b = e.target.closest('[data-sheet]'); if (b) go('sheet', { test: b.dataset.sheet, sid: d.sid, attempt: b.dataset.att });
   };
 }
