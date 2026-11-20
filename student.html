@@ -201,11 +201,26 @@ async function openTest(id) {
   const r = await sb.rpc('get_paper', { p_test: id });
   if (r.data) {
     paper = { ...r.data, offset: Date.parse(r.data.now) - Date.now() }; // offset = server clock minus tablet clock
-    const miss = await Promise.all(paper.questions.filter((q) => q.image_url).map((q) => fetch(q.image_url).then((x) => !x.ok, () => true))); // lets the service worker cache images
-    paper.missing = miss.filter(Boolean).length; // a picture that did not download would be blank offline
+    paper.missing = await keepImgs(paper.questions); // pictures that are not saved on the tablet would be blank offline
     write('paper.' + id, paper);
   } else if (!paper) { toast(r.error?.message ?? 'Could not download the paper'); return go('tests', true); }
   startScreen(paper);
+}
+
+// Pictures are saved in their own cache (the app update never clears it) and shown from there, not through the service worker
+const IMG = {};
+async function keepImgs(qs) {
+  navigator.storage?.persist?.().catch(() => {});
+  const c = await caches.open('qimg');
+  const miss = await Promise.all(qs.filter((q) => q.image_url).map(async ({ image_url: u }) => {
+    try {
+      let r = await c.match(u);
+      if (!r && navigator.onLine) { const f = await fetch(u); if (f.ok) await c.put(u, f.clone()); r = f.ok ? await c.match(u) : null; }
+      if (!r) return true;
+      IMG[u] = URL.createObjectURL(await r.blob()); return false;
+    } catch { return true; }
+  }));
+  return miss.filter(Boolean).length;
 }
 
 // OMR minutes, never more than half the paper
@@ -644,7 +659,7 @@ const chapterDrops = (rows, list) => list.map((c) => {
     <div class="chdrop"><div><span class="lbl">Subject</span><b>${cap(c.subject)}</b></div><div><span class="lbl">Questions</span><b>${c.total}</b></div><div><span class="lbl">Not correct</span><b>${miss.length}</b><span class="meta">${c.wrong} wrong · ${c.skipped} skipped</span></div><div><span class="lbl">Marks missed</span><b>${miss.reduce((x, q) => x + q.marks, 0)}</b></div></div></details>`;
 }).join('');
 const line = (t) => t.replace(/\s*\n\s*/g, ' '); // a question on one line, for lists
-const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(q.image_url)}" alt="Figure for this question">` : '');
+const img = (q) => (q.image_url ? `<img class="qimg" src="${esc(IMG[q.image_url] ?? q.image_url)}" alt="Figure for this question">` : '');
 const verdictChip = (v) => `<span class="chip ${v === 'C' ? 'ok' : v === 'W' ? 'bad' : ''}">${{ C: '✓ Correct', W: '✗ Wrong', S: '– Skipped' }[v]}</span>`;
 const optLine = (o, j, correct, chosen) => `<div class="optline ${j === correct ? 'right' : chosen === j ? 'wrong' : ''}"><span class="key">${'ABCD'[j]}</span><span class="grow">${fmt(o)}</span>${j === correct ? '<span>✓ correct</span>' : chosen === j ? '<span>✗ your answer</span>' : ''}</div>`;
 const qBlock = (q, chosen) => `<div class="qblock">${q.source_chapter || q.chapter ? `<p class="src">${esc(q.source_chapter || q.chapter)}</p>` : ''}<div class="qbody">${fmt(q.body)}</div>${img(q)}${q.options.map((o, j) => optLine(o, j, q.correct, chosen)).join('')}${q.solution ? `<p class="sol">${fmt(q.solution)}</p>` : ''}</div>`;
@@ -853,7 +868,7 @@ function ppick(i) {
 }
 
 /* ================= Boot ================= */
-if (S) { student(); history.replaceState(null, '', '#exam'); startEngine(); } // resume after a crash or restart, works offline
+if (S) { await keepImgs(S.qs); student(); history.replaceState(null, '', '#exam'); startEngine(); } // resume after a crash or restart, works offline
 else route();
 </script>
 </body>
