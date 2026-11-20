@@ -350,7 +350,7 @@ function lockUI() {
   armed = false; armBack();
   window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ''; };
   document.oncontextmenu = (e) => e.preventDefault();
-  document.onfullscreenchange = () => { if (S && !S.pending && !isFull()) { flag('fullscreen_exit'); render(); } };
+  document.onfullscreenchange = () => { if (S && !S.pending && !inOmr() && !isFull()) { flag('fullscreen_exit'); render(); } };
   document.onvisibilitychange = () => { if (!S || S.pending) return; if (document.hidden) flag('tab_hidden'); else keepAwake(); };
   keepAwake();
 }
@@ -515,6 +515,7 @@ function render() {
 
 // Last minutes: every answer on one screen, laid out like the paper sheet, to copy with a pen
 function renderOmr() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // OMR phase: she may leave fullscreen
   const cols = omrColumns(S.qs, S.qs.length > 100 ? 25 : 20), rows = Math.max(...cols.map((c) => c.items.length));
   const got = S.qs.filter((q) => S.answers[q.id] != null);
   app.innerHTML = `<div class="xm omr">
@@ -529,7 +530,7 @@ function renderOmr() {
       <div class="side-act">${S.photo ? `<img class="omr-shot" src="${S.photo}" alt="Your OMR sheet photo"><button class="btn" data-a="shoot">Retake photo</button><button class="btn danger" data-a="submit">Submit test</button>`
         : `${navigator.onLine ? '' : '<p class="err sm-text">Turn off airplane mode: the photo uploads when you submit.</p>'}<p class="sm-text">Fill the paper sheet, then photograph it.</p><button class="btn dark lg" data-a="shoot">Capture OMR sheet</button>`}
         <input type="file" id="cam" accept="image/*" capture="environment" hidden></div></aside></div>
-    ${fullGate()}${S.sent || S.omrOffline ? '' : `<div class="overlay"><div class="card stack">${!navigator.onLine ? '<b>Answers locked. Turn off airplane mode</b><span class="muted">Connect to the internet now. Your answers upload first, then you fill the OMR sheet. The clock keeps running.</span>'
+    ${S.sent || S.omrOffline ? '' : `<div class="overlay"><div class="card stack">${!navigator.onLine ? '<b>Answers locked. Turn off airplane mode</b><span class="muted">Connect to the internet now. Your answers upload first, then you fill the OMR sheet. The clock keeps running.</span>'
       : S.sendErr ? `<b>Answers not uploaded</b><span class="err">${esc(S.sendErr)}</span><button class="btn dark lg" data-a="sendNow">Try again</button>` : '<b>Uploading your answers…</b><span class="muted">Please wait.</span>'}
       ${navigator.onLine && !S.sendErr ? '' : '<button class="btn" data-a="omrOffline">No internet? Fill the sheet offline</button><span class="muted sm-text">Your answers stay on this tablet and upload later.</span>'}</div></div>`}`;
   updateClock();
